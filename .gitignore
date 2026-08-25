@@ -1,0 +1,23 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Veritabanı (her çalıştırmada değişir, GitHub'a gönderme)
+data/*.db
+
+# Raporlar (her çalıştırmada yeni oluşur)
+reports/
+*.html
+*.json
+
+# Log dosyası
+bot.log
+
+# Sanal ortam klasörü
+venv/
+.env
+
+# IDE dosyaları
+.vscode/
+.idea/
