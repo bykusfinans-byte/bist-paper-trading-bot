@@ -36,10 +36,10 @@ indicators:
   ema_slow: 21
   sma_trend: 50
   adx_period: 14
-  adx_threshold: 25
-  macd_fast: 12
-  macd_slow: 26
-  macd_signal: 9
+  adx_threshold: 20
+  macd_fast: 0.12
+  macd_slow: 0.26
+  macd_signal: 0.9
   bb_period: 20
   bb_std: 2
 
@@ -47,7 +47,7 @@ indicators:
 data:
   interval: "4h"
   lookback_days: 60
-  volume_threshold: 1.0  # Ortalama hacmin x katı
+  volume_threshold: 0.8  # Ortalama hacmin x katı
 
 # Bildirim ayarları
 notifications:
