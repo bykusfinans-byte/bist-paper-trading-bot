@@ -1,4 +1,4 @@
-name: BIST Paper Trading Bot
+name: BIST Bot
 
 on:
   schedule:
@@ -10,18 +10,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      
-      - name: Install
-        run: |
-          pip install yfinance pandas numpy pyyaml
-      
-      - name: Run Bot
+      - run: pip install yfinance==0.2.28 pandas numpy pyyaml
+      - run: python main.py
         env:
           SENDER_EMAIL: ${{ secrets.EMAIL_SENDER }}
           SENDER_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.EMAIL_RECIPIENT }}
-        run: python main.py
