@@ -22,26 +22,37 @@ class DataFetcher:
         for attempt in range(retries):
             try:
                 logger.info(f"📥 {symbol} verisi çekiliyor... (Deneme {attempt + 1})")
-                df = yf.download(
-                    ticker,
+                
+                # Daha stabil yöntem: Ticker objesi kullan
+                stock = yf.Ticker(ticker)
+                df = stock.history(
                     start=start_date.strftime('%Y-%m-%d'),
                     end=end_date.strftime('%Y-%m-%d'),
-                    interval=self.interval,
-                    progress=False,
-                    auto_adjust=True
+                    interval=self.interval
                 )
                 
                 if df.empty:
                     logger.warning(f"⚠️ {symbol} için veri bulunamadı")
                     return pd.DataFrame()
                 
-                # MultiIndex düzeltme (yfinance bazen MultiIndex döndürür)
-                if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = df.columns.get_level_values(0)
-                
+                # Sütun adlarını düzelt
                 df = df.reset_index()
-                if 'Date' in df.columns:
-                    df = df.rename(columns={'Date': 'Datetime'})
+                
+                # yfinance farklı sütun adları döndürebilir (Close / Adj Close)
+                if 'Adj Close' in df.columns and 'Close' not in df.columns:
+                    df['Close'] = df['Adj Close']
+                
+                # Tüm fiyat sütunlarının sayısal olduğundan emin ol
+                for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                
+                # NaN satırları temizle (indikatör hesaplaması için şart)
+                df = df.dropna(subset=['Close', 'High', 'Low'])
+                
+                if len(df) < 55:
+                    logger.warning(f"⚠️ {symbol}: Yetersiz veri ({len(df)} satır)")
+                    return pd.DataFrame()
                 
                 df['Symbol'] = symbol
                 logger.info(f"✅ {symbol}: {len(df)} satır veri çekildi")
@@ -50,7 +61,7 @@ class DataFetcher:
             except Exception as e:
                 logger.error(f"❌ {symbol} veri çekme hatası: {e}")
                 if attempt < retries - 1:
-                    time.sleep(2 ** attempt)  # Exponential backoff
+                    time.sleep(2 ** attempt)
                 else:
                     return pd.DataFrame()
         
@@ -63,5 +74,5 @@ class DataFetcher:
             df = self.fetch_stock_data(symbol)
             if not df.empty:
                 data[symbol] = df
-            time.sleep(0.5)  # Rate limit koruması
+            time.sleep(0.5)
         return data
