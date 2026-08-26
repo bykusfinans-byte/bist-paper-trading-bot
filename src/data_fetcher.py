@@ -22,7 +22,6 @@ class DataFetcher:
             try:
                 logger.info(f"📥 {symbol} verisi cekiliyor... (Deneme {attempt + 1})")
                 
-                # Daha stabil yontem
                 stock = yf.Ticker(ticker)
                 df = stock.history(
                     start=start_date.strftime('%Y-%m-%d'),
@@ -35,15 +34,12 @@ class DataFetcher:
                     logger.warning(f"⚠️ {symbol} icin veri bulunamadi")
                     return pd.DataFrame()
                 
-                # Sutun adlarini duzelt
                 df = df.reset_index()
                 
-                # Sayisal veri kontrolu
                 for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
                     if col in df.columns:
                         df[col] = pd.to_numeric(df[col], errors='coerce')
                 
-                # NaN satirlari temizle
                 df = df.dropna(subset=['Close', 'High', 'Low'])
                 
                 if len(df) < 55:
