@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-BIST Paper Trading Bot - Tek Dosya
+BIST Paper Trading Bot - requests kullaniyor, yfinance YOK!
 """
 
-import yfinance as yf
+import requests
 import pandas as pd
 import numpy as np
 import sqlite3
@@ -28,25 +28,43 @@ def load_config(path="config/config.yaml"):
 
 def fetch_stock(symbol, interval="4h", days=60):
     ticker = f"{symbol}.IS"
-    end = datetime.now()
-    start = end - timedelta(days=days)
+    end_ts = int(datetime.now().timestamp())
+    start_ts = end_ts - (days * 24 * 60 * 60)
+    
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+    params = {"period1": start_ts, "period2": end_ts, "interval": interval, "events": "history"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    
     try:
-        # farkli yontem dene
-        df = yf.download(ticker, start=start, end=end, interval=interval, progress=False, auto_adjust=True, prepost=False)
-        if df.empty:
+        r = requests.get(url, params=params, headers=headers, timeout=30)
+        data = r.json()
+        
+        if "chart" not in data or not data["chart"]["result"]:
+            logger.warning(f"⚠️ {symbol}: API bos yanıt")
             return None
-        df = df.reset_index()
-        if 'Date' in df.columns:
-            df = df.rename(columns={'Date': 'Datetime'})
-        for col in ['Open','High','Low','Close','Volume']:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-        df = df.dropna(subset=['Close','High','Low'])
+        
+        result = data["chart"]["result"][0]
+        timestamps = result["timestamp"]
+        quote = result["indicators"]["quote"][0]
+        
+        df = pd.DataFrame({
+            "Datetime": [datetime.fromtimestamp(t) for t in timestamps],
+            "Open": quote["open"],
+            "High": quote["high"],
+            "Low": quote["low"],
+            "Close": quote["close"],
+            "Volume": quote["volume"]
+        })
+        
+        df = df.dropna()
         if len(df) < 55:
+            logger.warning(f"⚠️ {symbol}: Yetersiz veri ({len(df)})")
             return None
+        
+        logger.info(f"✅ {symbol}: {len(df)} satir veri")
         return df
     except Exception as e:
-        logger.error(f"{symbol} veri hatasi: {e}")
+        logger.error(f"❌ {symbol} veri hatasi: {e}")
         return None
 
 def add_indicators(df, cfg):
@@ -69,7 +87,6 @@ def add_indicators(df, cfg):
     emaf = c.ewm(span=cfg['macd_fast'], adjust=False).mean()
     emas = c.ewm(span=cfg['macd_slow'], adjust=False).mean()
     df['MACD'] = emaf - emas
-    df['MACD_Signal'] = df['MACD'].ewm(span=cfg['macd_signal'], adjust=False).mean()
     
     sma20 = c.rolling(window=cfg['bb_period']).mean()
     std20 = c.rolling(window=cfg['bb_period']).std()
@@ -94,7 +111,7 @@ def check_signal(df, cfg):
     reasons = []
     if not trend:
         r = []
-        if price <= latest['EMA9']: r.append(f"Fiyat<=EMA9")
+        if price <= latest['EMA9']: r.append(f"Fiyat({price:.1f})<=EMA9({latest['EMA9']:.1f})")
         if latest['EMA9'] <= latest['EMA21']: r.append("EMA9<=EMA21")
         if latest['EMA21'] <= latest['SMA50']: r.append("EMA21<=SMA50")
         reasons.append("Trend:" + ",".join(r))
@@ -212,7 +229,6 @@ def run():
             if sig == 'HOLD' and reason != 'Yetersiz veri':
                 logger.info(f"   ↳ {reason}")
             
-            # Pozisyon kontrol
             pos = next((p for p in get_pos() if p['symbol'] == sym), None)
             if pos:
                 if price <= pos['stop_loss']:
