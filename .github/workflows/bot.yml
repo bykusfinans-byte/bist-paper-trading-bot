@@ -31,7 +31,7 @@ jobs:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
-        run: python src/main.py
+        run: python main.py
 
       - name: Commit portfolio changes
         run: |
