@@ -1,0 +1,52 @@
+watchlist:
+  - THYAO
+  - GARAN
+  - ASELS
+  - BIMAS
+  - KCHOL
+  - SISE
+  - TUPRS
+  - EKGYO
+  - ISCTR
+  - AKBNK
+  - YKBNK
+  - SAHOL
+  - ARCLK
+  - PGSUS
+  - TCELL
+  - HEKTS
+  - MGROS
+  - PETKM
+  - TOASO
+
+portfolio:
+  initial_balance: 100000
+  max_position_per_stock: 0.20
+  stop_loss_pct: 0.05
+  take_profit_pct: 0.10
+
+indicators:
+  ema_fast: 9
+  ema_slow: 21
+  sma_trend: 50
+  adx_period: 14
+  adx_threshold: 20
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  bb_period: 20
+  bb_std: 2
+
+data:
+  interval: "4h"
+  lookback_days: 60
+  volume_threshold: 0.8
+
+notifications:
+  email:
+    enabled: true
+    smtp_server: "smtp.gmail.com"
+    smtp_port: 587
+    sender_email: ""
+    sender_password: ""
+    recipient_email: ""
