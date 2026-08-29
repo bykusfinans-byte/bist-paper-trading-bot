@@ -257,17 +257,20 @@ def run():
                     ok, msg = buy(sym, price, reason, cfg['portfolio']['max_position_per_stock'])
                     if ok:
                         buy_html = f"""<!DOCTYPE html>
-<html><body style="margin:0;padding:20px;background:#f4f6f8;font-family:Arial;">
-<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
-<table width="500" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.1);">
-<tr><td style="background:linear-gradient(135deg,#27ae60,#2ecc71);padding:25px;text-align:center;color:#ffffff;">
-<h1 style="margin:0;">🟢 ALIM İŞLEMİ</h1><p style="margin:5px 0 0 0;">{sym} @ {price:.2f} ₺</p></td></tr>
-<tr><td style="padding:20px;"><table width="100%" style="font-size:14px;">
-<tr><td style="padding:8px;border-bottom:1px solid #eee;"><strong>Hisse:</strong></td><td style="padding:8px;border-bottom:1px solid #eee;">{sym}.IS</td></tr>
-<tr><td style="padding:8px;border-bottom:1px solid #eee;"><strong>Fiyat:</strong></td><td style="padding:8px;border-bottom:1px solid #eee;">{price:.2f} ₺</td></tr>
-<tr><td style="padding:8px;border-bottom:1px solid #eee;"><strong>Sebep:</strong></td><td style="padding:8px;border-bottom:1px solid #eee;">{reason}</td></tr>
+<html><body style="margin:0;background:#eef2f7;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="20"><tr><td align="center">
+<table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border:1px solid #d1d5db;">
+<tr><td bgcolor="#16A34A" style="padding:22px;text-align:center;">
+<h1 style="margin:0;color:#fff;">🟢 AL SİNYALİ</h1>
+<div style="color:#dcfce7;margin-top:8px;">{sym} • {price:.2f} ₺</div></td></tr>
+<tr><td style="padding:20px;">
+<table width="100%" cellpadding="8">
+<tr><td><b>Hisse</b></td><td align="right">{sym}</td></tr>
+<tr><td><b>Fiyat</b></td><td align="right">{price:.2f} ₺</td></tr>
+<tr><td><b>İşlem</b></td><td align="right" style="color:#16A34A;font-weight:bold;">AL</td></tr>
+<tr><td><b>Sebep</b></td><td align="right">{reason}</td></tr>
 </table></td></tr>
-<tr><td style="background:#f8f9fa;padding:15px;text-align:center;color:#888;font-size:11px;">BIST Paper Trading Bot</td></tr>
+<tr><td bgcolor="#F8FAFC" style="padding:12px;text-align:center;font-size:11px;color:#64748b;">BIST AI PRO</td></tr>
 </table></td></tr></table></body></html>"""
                         send_mail(f"🟢 ALIM: {sym}", buy_html, email)
                         trades += 1
@@ -282,31 +285,26 @@ def run():
     # === INDIKATOR TABLOSU ===
     ind_rows = ""
     for s in signals:
-        if not s.get('indicators'):
+        i = s.get("indicators", {})
+        if not i:
+            ind_rows += f"<tr><td style='padding:8px;border:1px solid #e5e7eb;'>{s['symbol']}</td><td colspan='7' align='center' style='padding:8px;border:1px solid #e5e7eb;color:#999;'>Veri yok</td></tr>"
             continue
-        i = s['indicators']
-        sig_color = "#27ae60" if s['signal'] == 'BUY' else "#e74c3c" if s['signal'] == 'SELL' else "#95a5a6"
-        sig_text = "AL" if s['signal'] == 'BUY' else "SAT" if s['signal'] == 'SELL' else "BEKLE"
-        rsi_color = "#e74c3c" if i.get('rsi',50) > 70 else "#27ae60" if i.get('rsi',50) < 30 else "#2c3e50"
-        macd_color = "#27ae60" if i.get('macd',0) > 0 else "#e74c3c"
-        adx_color = "#27ae60" if i.get('adx',0) > 20 else "#e74c3c"
-        
-        ind_rows += f"""
-        <tr style="border-bottom:1px solid #e0e0e0;">
-            <td style="padding:12px;font-weight:bold;">{s['symbol']}</td>
-            <td style="padding:12px;text-align:center;color:{sig_color};font-weight:bold;">{sig_text}</td>
-            <td style="padding:12px;text-align:center;">{i['price']:.2f}</td>
-            <td style="padding:12px;text-align:center;">{i['ema9']:.2f}</td>
-            <td style="padding:12px;text-align:center;">{i['ema21']:.2f}</td>
-            <td style="padding:12px;text-align:center;">{i['sma50']:.2f}</td>
-            <td style="padding:12px;text-align:center;color:{rsi_color};font-weight:bold;">{i['rsi']:.1f}</td>
-            <td style="padding:12px;text-align:center;color:{macd_color};font-weight:bold;">{i['macd']:.2f}</td>
-            <td style="padding:12px;text-align:center;color:{adx_color};font-weight:bold;">{i['adx']:.1f}</td>
-        </tr>"""
-    
-    if not ind_rows:
-        ind_rows = '<tr><td colspan="9" style="padding:20px;text-align:center;">Veri yok</td></tr>'
-    
+        sig_color = "#16A34A" if s["signal"]=="BUY" else "#64748B"
+        sig_text = "AL" if s["signal"]=="BUY" else "BEKLE"
+        rsi_color = "#DC2626" if i["rsi"]>70 else "#16A34A" if i["rsi"]<30 else "#111827"
+        macd_color = "#16A34A" if i["macd"]>0 else "#DC2626"
+        adx_color = "#16A34A" if i["adx"]>20 else "#DC2626"
+        ind_rows += f"""<tr>
+<td style='padding:8px;border:1px solid #e5e7eb;font-weight:bold;'>{s['symbol']}</td>
+<td align='center' style='padding:8px;border:1px solid #e5e7eb;color:{sig_color};font-weight:bold;'>{sig_text}</td>
+<td align='center' style='padding:8px;border:1px solid #e5e7eb;'>{i['price']:.2f}</td>
+<td align='center' style='padding:8px;border:1px solid #e5e7eb;'>{i['ema9']:.2f}</td>
+<td align='center' style='padding:8px;border:1px solid #e5e7eb;'>{i['ema21']:.2f}</td>
+<td align='center' style='padding:8px;border:1px solid #e5e7eb;color:{rsi_color};font-weight:bold;'>{i['rsi']:.1f}</td>
+<td align='center' style='padding:8px;border:1px solid #e5e7eb;color:{macd_color};font-weight:bold;'>{i['macd']:.2f}</td>
+<td align='center' style='padding:8px;border:1px solid #e5e7eb;color:{adx_color};font-weight:bold;'>{i['adx']:.1f}</td>
+</tr>"""
+
     # === ACIK POZISYONLAR ===
     pos_rows = ""
     for p in pos_list:
@@ -323,53 +321,34 @@ def run():
         pos_rows = '<tr><td colspan="5" style="padding:20px;text-align:center;">Açık pozisyon yok</td></tr>'
     
     # === RAPOR HTML ===
-    html = f"""<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"></head>
-<body style="margin:0;padding:20px;background:#f5f5f5;font-family:Arial;">
-<table width="700" align="center" style="background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);">
-<tr><td style="background:linear-gradient(135deg,#667eea,#764ba2);padding:30px;text-align:center;border-radius:12px 12px 0 0;">
-<h1 style="color:#fff;margin:0;">📈 BIST Paper Trading Bot</h1>
-<p style="color:#eee;margin:5px 0 0 0;">{datetime.now().strftime('%d %B %Y, %H:%M')}</p></td></tr>
-<tr><td style="padding:20px;">
-<table width="100%" style="margin-bottom:20px;"><tr>
-<td style="background:#fff;padding:15px;text-align:center;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.05);border-top:3px solid #3498db;"><small style="color:#888;">Nakit</small><br><strong style="font-size:18px;">{bal['cash']:,.0f} ₺</strong></td>
-<td style="width:10px;"></td>
-<td style="background:#fff;padding:15px;text-align:center;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.05);border-top:3px solid #9b59b6;"><small style="color:#888;">Yatırımda</small><br><strong style="font-size:18px;">{bal['total_invested']:,.0f} ₺</strong></td>
-<td style="width:10px;"></td>
-<td style="background:#fff;padding:15px;text-align:center;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.05);border-top:3px solid #27ae60;"><small style="color:#888;">Toplam</small><br><strong style="font-size:18px;">{bal['total_value']:,.0f} ₺</strong></td>
-<td style="width:10px;"></td>
-<td style="background:#fff;padding:15px;text-align:center;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.05);border-top:3px solid #e67e22;"><small style="color:#888;">Pozisyon</small><br><strong style="font-size:18px;">{len(pos_list)}</strong></td>
+    html = f"""<!DOCTYPE html><html><head><meta charset='UTF-8'></head>
+<body style='margin:0;background:#eef2f7;font-family:Arial,Helvetica,sans-serif;'>
+<table width='100%' cellpadding='20'><tr><td align='center'>
+<table width='680' cellpadding='0' cellspacing='0' style='background:#fff;border:1px solid #d1d5db;'>
+<tr><td bgcolor='#0F766E' style='padding:22px;text-align:center;'>
+<h1 style='margin:0;color:#fff;'>📈 BIST AI PRO</h1>
+<div style='color:#d1fae5;font-size:13px;'>{datetime.now().strftime('%d.%m.%Y %H:%M')}</div></td></tr>
+<tr><td style='padding:18px;'>
+<table width='100%' cellpadding='6'><tr>
+<td width='25%' align='center' style='border:1px solid #e5e7eb;'><div style='font-size:11px;color:#64748b;'>NAKİT</div><b>{bal['cash']:,.0f} ₺</b></td>
+<td width='25%' align='center' style='border:1px solid #e5e7eb;'><div style='font-size:11px;color:#64748b;'>YATIRIM</div><b>{bal['total_invested']:,.0f} ₺</b></td>
+<td width='25%' align='center' style='border:1px solid #e5e7eb;'><div style='font-size:11px;color:#64748b;'>TOPLAM</div><b>{bal['total_value']:,.0f} ₺</b></td>
+<td width='25%' align='center' style='border:1px solid #e5e7eb;'><div style='font-size:11px;color:#64748b;'>POZİSYON</div><b>{len(pos_list)}</b></td>
 </tr></table>
-<h2 style="color:#2c3e50;font-size:16px;border-left:4px solid #667eea;padding-left:10px;">📊 Teknik Analiz Tablosu</h2>
-<table width="100%" style="border-collapse:collapse;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,0.05);border-radius:8px;overflow:hidden;">
-<tr style="background:#34495e;color:#fff;">
-<th style="padding:10px;text-align:left;">Hisse</th>
-<th style="padding:10px;text-align:center;">Sinyal</th>
-<th style="padding:10px;text-align:center;">Fiyat</th>
-<th style="padding:10px;text-align:center;">EMA9</th>
-<th style="padding:10px;text-align:center;">EMA21</th>
-<th style="padding:10px;text-align:center;">SMA50</th>
-<th style="padding:10px;text-align:center;">RSI</th>
-<th style="padding:10px;text-align:center;">MACD</th>
-<th style="padding:10px;text-align:center;">ADX</th>
-</tr>{ind_rows}</table>
-<p style="color:#888;font-size:11px;margin-top:8px;">RSI &lt;30 aşırı satım, &gt;70 aşırı alım | MACD &gt;0 pozitif | ADX &gt;20 güçlü trend</p>
-<h2 style="color:#2c3e50;font-size:16px;border-left:4px solid #e74c3c;padding-left:10px;margin-top:20px;">📋 Açık Pozisyonlar</h2>
-<table width="100%" style="border-collapse:collapse;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,0.05);border-radius:8px;overflow:hidden;">
-<tr style="background:#34495e;color:#fff;">
-<th style="padding:10px;text-align:left;">Hisse</th>
-<th style="padding:10px;text-align:center;">Lot</th>
-<th style="padding:10px;text-align:center;">Alış</th>
-<th style="padding:10px;text-align:center;">Stop-Loss</th>
-<th style="padding:10px;text-align:center;">Take-Profit</th>
-</tr>{pos_rows}</table>
+<h2 style='color:#1e293b;'>📊 Teknik Analiz</h2>
+<table width='100%' cellpadding='8' cellspacing='0' style='border-collapse:collapse;border:1px solid #d1d5db;'>
+<tr bgcolor='#1E293B'><th align='left' style='color:#fff;'>Hisse</th><th style='color:#fff;'>Sinyal</th><th style='color:#fff;'>Fiyat</th><th style='color:#fff;'>EMA9</th><th style='color:#fff;'>EMA21</th><th style='color:#fff;'>RSI</th><th style='color:#fff;'>MACD</th><th style='color:#fff;'>ADX</th></tr>
+{ind_rows}
+</table>
+<h2 style='color:#1e293b;margin-top:22px;'>📋 Açık Pozisyonlar</h2>
+<table width='100%' cellpadding='8' cellspacing='0' style='border-collapse:collapse;border:1px solid #d1d5db;'>
+<tr bgcolor='#1E293B'><th align='left' style='color:#fff;'>Hisse</th><th style='color:#fff;'>Lot</th><th style='color:#fff;'>Alış</th><th style='color:#fff;'>Stop</th><th style='color:#fff;'>Hedef</th></tr>
+{pos_rows}
+</table>
 </td></tr>
-<tr><td style="background:#f8f9fa;padding:15px;text-align:center;border-radius:0 0 12px 12px;">
-<p style="color:#888;font-size:11px;margin:0;">BIST Paper Trading Bot • Otomatik Raporlama</p>
-</td></tr>
-</table></body></html>"""
-    
+<tr><td bgcolor='#F8FAFC' style='padding:12px;text-align:center;color:#64748b;font-size:11px;'>BIST AI PRO • Otomatik Teknik Analiz Sistemi</td></tr>
+</table></td></tr></table></body></html>"""
+
     send_mail(f"📊 BIST Bot Raporu ({datetime.now().strftime('%d.%m %H:%M')})", html, email)
     
     Path("reports").mkdir(exist_ok=True)
