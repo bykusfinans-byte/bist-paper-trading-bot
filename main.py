@@ -369,120 +369,98 @@ def run():
         pos_rows = '<tr><td colspan="5" style="padding:20px;text-align:center;color:#888;">Açık pozisyon yok</td></tr>'
     
     # === RAPOR HTML ===
+       # === INDIKATOR TABLOSU ===
+    ind_rows = ""
+    for s in signals:
+        if not s.get('indicators'):
+            continue
+        i = s['indicators']
+        sig_color = "#27ae60" if s['signal'] == 'BUY' else "#e74c3c" if s['signal'] == 'SELL' else "#95a5a6"
+        sig_text = "🟢 AL" if s['signal'] == 'BUY' else "🔴 SAT" if s['signal'] == 'SELL' else "⚪ BEKLE"
+        rsi_color = "#e74c3c" if i.get('rsi',50) > 70 else "#27ae60" if i.get('rsi',50) < 30 else "#2c3e50"
+        macd_color = "#27ae60" if i.get('macd',0) > 0 else "#e74c3c"
+        adx_color = "#27ae60" if i.get('adx',0) > 20 else "#e74c3c"
+        
+        ind_rows += f"""
+        <tr style="border-bottom:1px solid #e8e8e8;">
+            <td style="padding:10px;font-weight:bold;color:#2c3e50;">{s['symbol']}.IS</td>
+            <td style="padding:10px;text-align:center;font-weight:bold;color:{sig_color};">{sig_text}</td>
+            <td style="padding:10px;text-align:center;">{i['price']:.2f}</td>
+            <td style="padding:10px;text-align:center;">{i['ema9']:.2f}</td>
+            <td style="padding:10px;text-align:center;">{i['ema21']:.2f}</td>
+            <td style="padding:10px;text-align:center;">{i['sma50']:.2f}</td>
+            <td style="padding:10px;text-align:center;font-weight:bold;color:{rsi_color};">{i['rsi']:.1f}</td>
+            <td style="padding:10px;text-align:center;font-weight:bold;color:{macd_color};">{i['macd']:.2f}</td>
+            <td style="padding:10px;text-align:center;font-weight:bold;color:{adx_color};">{i['adx']:.1f}</td>
+        </tr>"""
+    
+    if not ind_rows:
+        ind_rows = '<tr><td colspan="9" style="padding:20px;text-align:center;color:#888;">Veri yok</td></tr>'
+    
+    # === ACIK POZISYONLAR ===
+    pos_rows = ""
+    for p in pos_list:
+        pos_rows += f"""
+        <tr style="border-bottom:1px solid #e8e8e8;">
+            <td style="padding:12px;font-weight:bold;color:#2c3e50;">{p['symbol']}.IS</td>
+            <td style="padding:12px;text-align:center;">{p['shares']:.2f}</td>
+            <td style="padding:12px;text-align:center;">{p['entry_price']:.2f} ₺</td>
+            <td style="padding:12px;text-align:center;color:#e74c3c;">{p['stop_loss']:.2f} ₺</td>
+            <td style="padding:12px;text-align:center;color:#27ae60;">{p['take_profit']:.2f} ₺</td>
+        </tr>"""
+    
+    if not pos_rows:
+        pos_rows = '<tr><td colspan="5" style="padding:20px;text-align:center;color:#888;">Açık pozisyon yok</td></tr>'
+    
+    # === RAPOR HTML ===
     html = f"""<!DOCTYPE html>
 <html lang="tr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BIST Bot Raporu</title>
-</head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>BIST Bot Raporu</title></head>
 <body style="margin:0;padding:0;background:#f0f2f5;font-family:'Segoe UI',Roboto,Arial,sans-serif;">
-    <table width="100%" cellpadding="0" cellspacing="0" border="0">
-        <tr>
-            <td align="center" style="padding:20px 10px;">
-                <table width="750" cellpadding="0" cellspacing="0" border="0" style="max-width:750px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.08);">
-                    
-                    <!-- HEADER -->
-                    <tr>
-                        <td style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:35px 30px;text-align:center;">
-                            <h1 style="margin:0;color:#ffffff;font-size:26px;letter-spacing:1px;">📈 BIST Paper Trading Bot</h1>
-                            <p style="margin:10px 0 0 0;color:#e0e0e0;font-size:14px;">Portföy Raporu • {datetime.now().strftime('%d %B %Y, %H:%M')}</p>
-                        </td>
-                    </tr>
-                    
-                    <!-- OZET KARTLARI -->
-                    <tr>
-                        <td style="padding:25px 20px;background:#f8f9fa;">
-                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                                <tr>
-                                    <td width="25%" style="padding:6px;">
-                                        <div style="background:#ffffff;padding:18px 10px;border-radius:10px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.04);border-top:3px solid #3498db;">
-                                            <p style="margin:0 0 6px 0;color:#7f8c8d;font-size:11px;text-transform:uppercase;letter-spacing:1px;">💰 Nakit</p>
-                                            <p style="margin:0;font-size:20px;font-weight:bold;color:#2c3e50;">{bal['cash']:,.0f} ₺</p>
-                                        </div>
-                                    </td>
-                                    <td width="25%" style="padding:6px;">
-                                        <div style="background:#ffffff;padding:18px 10px;border-radius:10px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.04);border-top:3px solid #9b59b6;">
-                                            <p style="margin:0 0 6px 0;color:#7f8c8d;font-size:11px;text-transform:uppercase;letter-spacing:1px;">📊 Yatırımda</p>
-                                            <p style="margin:0;font-size:20px;font-weight:bold;color:#2c3e50;">{bal['total_invested']:,.0f} ₺</p>
-                                        </div>
-                                    </td>
-                                    <td width="25%" style="padding:6px;">
-                                        <div style="background:#ffffff;padding:18px 10px;border-radius:10px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.04);border-top:3px solid #27ae60;">
-                                            <p style="margin:0 0 6px 0;color:#7f8c8d;font-size:11px;text-transform:uppercase;letter-spacing:1px;">💎 Toplam</p>
-                                            <p style="margin:0;font-size:20px;font-weight:bold;color:#2c3e50;">{bal['total_value']:,.0f} ₺</p>
-                                        </div>
-                                    </td>
-                                    <td width="25%" style="padding:6px;">
-                                        <div style="background:#ffffff;padding:18px 10px;border-radius:10px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.04);border-top:3px solid #e67e22;">
-                                            <p style="margin:0 0 6px 0;color:#7f8c8d;font-size:11px;text-transform:uppercase;letter-spacing:1px;">📋 Pozisyon</p>
-                                            <p style="margin:0;font-size:20px;font-weight:bold;color:#2c3e50;">{len(pos_list)}</p>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </table>
-                        </td>
-                    </tr>
-                    
-                    <!-- TEKNIK ANALIZ TABLOSU -->
-                    <tr>
-                        <td style="padding:0 25px 25px 25px;">
-                            <h2 style="margin:0 0 15px 0;color:#2c3e50;font-size:18px;border-left:4px solid #667eea;padding-left:12px;">📊 Teknik Analiz Tablosu</h2>
-                            <div style="overflow-x:auto;">
-                                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,0.04);border-radius:8px;overflow:hidden;">
-                                    <tr style="background:linear-gradient(135deg,#34495e,#2c3e50);color:#ffffff;">
-                                        <th style="padding:12px 8px;text-align:left;">Hisse</th>
-                                        <th style="padding:12px 8px;text-align:center;">Sinyal</th>
-                                        <th style="padding:12px 8px;text-align:center;">Fiyat</th>
-                                        <th style="padding:12px 8px;text-align:center;">EMA9</th>
-                                        <th style="padding:12px 8px;text-align:center;">EMA21</th>
-                                        <th style="padding:12px 8px;text-align:center;">SMA50</th>
-                                        <th style="padding:12px 8px;text-align:center;">RSI</th>
-                                        <th style="padding:12px 8px;text-align:center;">MACD</th>
-                                        <th style="padding:12px 8px;text-align:center;">ADX</th>
-                                    </tr>
-                                    {ind_rows}
-                                </table>
-                            </div>
-                            <p style="margin:10px 0 0 0;color:#7f8c8d;font-size:11px;">
-                                <span style="color:#27ae60;">●</span> RSI &lt;30 aşırı satım, &gt;70 aşırı alım | 
-                                <span style="color:#27ae60;">●</span> MACD &gt;0 pozitif | 
-                                <span style="color:#27ae60;">●</span> ADX &gt;20 güçlü trend
-                            </p>
-                        </td>
-                    </tr>
-                    
-                    <!-- ACIK POZISYONLAR -->
-                    <tr>
-                        <td style="padding:0 25px 25px 25px;">
-                            <h2 style="margin:0 0 15px 0;color:#2c3e50;font-size:18px;border-left:4px solid #e74c3c;padding-left:12px;">📋 Açık Pozisyonlar</h2>
-                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,0.04);border-radius:8px;overflow:hidden;">
-                                <tr style="background:linear-gradient(135deg,#34495e,#2c3e50);color:#ffffff;">
-                                    <th style="padding:12px;text-align:left;">Hisse</th>
-                                    <th style="padding:12px;text-align:center;">Lot</th>
-                                    <th style="padding:12px;text-align:center;">Alış Fiyatı</th>
-                                    <th style="padding:12px;text-align:center;">Stop-Loss</th>
-                                    <th style="padding:12px;text-align:center;">Take-Profit</th>
-                                </tr>
-                                {pos_rows}
-                            </table>
-                        </td>
-                    </tr>
-                    
-                    <!-- FOOTER -->
-                    <tr>
-                        <td style="background:#f8f9fa;padding:20px;text-align:center;border-top:1px solid #e0e0e0;">
-                            <p style="margin:0;color:#95a5a6;font-size:12px;">BIST Paper Trading Bot • Otomatik Raporlama Sistemi</p>
-                            <p style="margin:5px 0 0 0;color:#bdc3c7;font-size:11px;">Bu rapor sanal (paper) trading verilerini içerir. Gerçek para ile işlem yapılmamaktadır.</p>
-                        </td>
-                    </tr>
-                    
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>"""
+<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding:20px 10px;">
+<table width="750" cellpadding="0" cellspacing="0" border="0" style="max-width:750px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.08);">
+<tr><td style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:35px 30px;text-align:center;">
+<h1 style="margin:0;color:#ffffff;font-size:26px;letter-spacing:1px;">📈 BIST Paper Trading Bot</h1>
+<p style="margin:10px 0 0 0;color:#e0e0e0;font-size:14px;">Portföy Raporu • {datetime.now().strftime('%d %B %Y, %H:%M')}</p></td></tr>
+<tr><td style="padding:25px 20px;background:#f8f9fa;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td width="25%" style="padding:6px;"><div style="background:#ffffff;padding:18px 10px;border-radius:10px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.04);border-top:3px solid #3498db;"><p style="margin:0 0 6px 0;color:#7f8c8d;font-size:11px;text-transform:uppercase;letter-spacing:1px;">💰 Nakit</p><p style="margin:0;font-size:20px;font-weight:bold;color:#2c3e50;">{bal['cash']:,.0f} ₺</p></div></td>
+<td width="25%" style="padding:6px;"><div style="background:#ffffff;padding:18px 10px;border-radius:10px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.04);border-top:3px solid #9b59b6;"><p style="margin:0 0 6px 0;color:#7f8c8d;font-size:11px;text-transform:uppercase;letter-spacing:1px;">📊 Yatırımda</p><p style="margin:0;font-size:20px;font-weight:bold;color:#2c3e50;">{bal['total_invested']:,.0f} ₺</p></div></td>
+<td width="25%" style="padding:6px;"><div style="background:#ffffff;padding:18px 10px;border-radius:10px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.04);border-top:3px solid #27ae60;"><p style="margin:0 0 6px 0;color:#7f8c8d;font-size:11px;text-transform:uppercase;letter-spacing:1px;">💎 Toplam</p><p style="margin:0;font-size:20px;font-weight:bold;color:#2c3e50;">{bal['total_value']:,.0f} ₺</p></div></td>
+<td width="25%" style="padding:6px;"><div style="background:#ffffff;padding:18px 10px;border-radius:10px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.04);border-top:3px solid #e67e22;"><p style="margin:0 0 6px 0;color:#7f8c8d;font-size:11px;text-transform:uppercase;letter-spacing:1px;">📋 Pozisyon</p><p style="margin:0;font-size:20px;font-weight:bold;color:#2c3e50;">{len(pos_list)}</p></div></td>
+</tr></table></td></tr>
+<tr><td style="padding:0 25px 25px 25px;">
+<h2 style="margin:0 0 15px 0;color:#2c3e50;font-size:18px;border-left:4px solid #667eea;padding-left:12px;">📊 Teknik Analiz Tablosu</h2>
+<div style="overflow-x:auto;"><table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,0.04);border-radius:8px;overflow:hidden;">
+<tr style="background:linear-gradient(135deg,#34495e,#2c3e50);color:#ffffff;">
+<th style="padding:12px 8px;text-align:left;">Hisse</th>
+<th style="padding:12px 8px;text-align:center;">Sinyal</th>
+<th style="padding:12px 8px;text-align:center;">Fiyat</th>
+<th style="padding:12px 8px;text-align:center;">EMA9</th>
+<th style="padding:12px 8px;text-align:center;">EMA21</th>
+<th style="padding:12px 8px;text-align:center;">SMA50</th>
+<th style="padding:12px 8px;text-align:center;">RSI</th>
+<th style="padding:12px 8px;text-align:center;">MACD</th>
+<th style="padding:12px 8px;text-align:center;">ADX</th>
+</tr>{ind_rows}</table></div>
+<p style="margin:10px 0 0 0;color:#7f8c8d;font-size:11px;"><span style="color:#27ae60;">●</span> RSI &lt;30 aşırı satım, &gt;70 aşırı alım | <span style="color:#27ae60;">●</span> MACD &gt;0 pozitif | <span style="color:#27ae60;">●</span> ADX &gt;20 güçlü trend</p>
+</td></tr>
+<tr><td style="padding:0 25px 25px 25px;">
+<h2 style="margin:0 0 15px 0;color:#2c3e50;font-size:18px;border-left:4px solid #e74c3c;padding-left:12px;">📋 Açık Pozisyonlar</h2>
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,0.04);border-radius:8px;overflow:hidden;">
+<tr style="background:linear-gradient(135deg,#34495e,#2c3e50);color:#ffffff;">
+<th style="padding:12px;text-align:left;">Hisse</th>
+<th style="padding:12px;text-align:center;">Lot</th>
+<th style="padding:12px;text-align:center;">Alış Fiyatı</th>
+<th style="padding:12px;text-align:center;">Stop-Loss</th>
+<th style="padding:12px;text-align:center;">Take-Profit</th>
+</tr>{pos_rows}</table>
+</td></tr>
+<tr><td style="background:#f8f9fa;padding:20px;text-align:center;border-top:1px solid #e0e0e0;">
+<p style="margin:0;color:#95a5a6;font-size:12px;">BIST Paper Trading Bot • Otomatik Raporlama Sistemi</p>
+<p style="margin:5px 0 0 0;color:#bdc3c7;font-size:11px;">Bu rapor sanal (paper) trading verilerini içerir.</p>
+</td></tr>
+</table></td></tr></table></body></html>"""
     
     send_mail(f"📊 BIST Bot Raporu ({datetime.now().strftime('%d.%m %H:%M')})", html, email)
     
