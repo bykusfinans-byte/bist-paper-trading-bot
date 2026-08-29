@@ -337,8 +337,8 @@ def run():
 <td width='25%' align='center' style='border:1px solid #e5e7eb;'><div style='font-size:11px;color:#64748b;'>POZİSYON</div><b>{len(pos_list)}</b></td>
 </tr></table>
 <h2 style='color:#1e293b;'>📊 Teknik Analiz</h2>
-<table width='100%' cellpadding='8' cellspacing='0' style='border-collapse:collapse;border:1px solid #d1d5db;'>
-<tr bgcolor='#1E293B'><th align='left' style='color:#fff;'>Hisse</th><th style='color:#fff;'>Sinyal</th><th style='color:#fff;'>Fiyat</th><th style='color:#fff;'>EMA9</th><th style='color:#fff;'>EMA21</th><th style='color:#fff;'>RSI</th><th style='color:#fff;'>MACD</th><th style='color:#fff;'>ADX</th></tr>
+<table width='100%' cellpadding='9' cellspacing='0' style='border-collapse:collapse;border:1px solid #d1d5db;'>
+<tr bgcolor='#1E293B'><th align='left' style='color:#fff;'>Hisse</th><th style='color:#fff;'>Sinyal</th><th style='color:#fff;'>Fiyat</th><th style='color:#fff;'>EMA9</th><th style='color:#fff;'>EMA21</th><th style='color:#fff;'>SMA50</th><th style='color:#fff;'>RSI</th><th style='color:#fff;'>MACD</th><th style='color:#fff;'>ADX</th></tr>
 {ind_rows}
 </table>
 <h2 style='color:#1e293b;margin-top:22px;'>📋 Açık Pozisyonlar</h2>
