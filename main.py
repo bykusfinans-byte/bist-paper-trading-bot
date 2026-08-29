@@ -300,6 +300,7 @@ def run():
 <td align='center' style='padding:8px;border:1px solid #e5e7eb;'>{i['price']:.2f}</td>
 <td align='center' style='padding:8px;border:1px solid #e5e7eb;'>{i['ema9']:.2f}</td>
 <td align='center' style='padding:8px;border:1px solid #e5e7eb;'>{i['ema21']:.2f}</td>
+<td align='center' style='padding:8px;border:1px solid #e5e7eb;'>{i['sma50']:.2f}</td>
 <td align='center' style='padding:8px;border:1px solid #e5e7eb;color:{rsi_color};font-weight:bold;'>{i['rsi']:.1f}</td>
 <td align='center' style='padding:8px;border:1px solid #e5e7eb;color:{macd_color};font-weight:bold;'>{i['macd']:.2f}</td>
 <td align='center' style='padding:8px;border:1px solid #e5e7eb;color:{adx_color};font-weight:bold;'>{i['adx']:.1f}</td>
