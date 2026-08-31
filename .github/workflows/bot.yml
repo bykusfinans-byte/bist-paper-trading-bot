@@ -2,40 +2,57 @@ name: BIST Bot
 
 on:
   schedule:
-    - cron: '0 7,8,9,10,11,12,13,14,15 * * 1-5'
+    # Türkiye saatiyle 09:00 - 18:00
+    # GitHub Actions UTC kullandığı için 06:00 - 15:00
+    - cron: '0 6-15 * * 1-5'
+
+  # GitHub'dan elle çalıştırmak için
   workflow_dispatch:
 
 jobs:
   bot:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      
+      # Projeyi indir
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Önceki portföy verisini geri yükle
       - name: Restore portfolio
         uses: actions/cache/restore@v4
         id: cache-db
         with:
           path: data/portfolio.db
-          key: portfolio-db
-          restore-keys: portfolio-db-
-      
-      - uses: actions/setup-python@v5
+          key: portfolio-db-${{ github.run_id }}
+          restore-keys: |
+            portfolio-db-
+
+      # Python kurulumu
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      
-      - run: |
-          pip install --upgrade pip
+
+      # Gerekli paketler
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
           pip install requests pandas numpy pyyaml
-      
-      - run: python main.py
+
+      # Botu çalıştır
+      - name: Run BIST Bot
         env:
           SENDER_EMAIL: ${{ secrets.EMAIL_SENDER }}
           SENDER_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.EMAIL_RECIPIENT }}
-      
+        run: |
+          python main.py
+
+      # Portföy verisini kaydet
       - name: Save portfolio
         if: always()
         uses: actions/cache/save@v4
         with:
           path: data/portfolio.db
-          key: portfolio-db
+          key: portfolio-db-${{ github.run_id }}
