@@ -2,11 +2,7 @@ name: BIST Bot
 
 on:
   schedule:
-    # Türkiye saatiyle 09:00 - 18:00
-    # GitHub Actions UTC kullandığı için 06:00 - 15:00
     - cron: '5 6-15 * * 1-5'
-
-  # GitHub'dan elle çalıştırmak için
   workflow_dispatch:
 
 jobs:
@@ -14,11 +10,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Projeyi indir
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Önceki portföy verisini geri yükle
       - name: Restore portfolio
         uses: actions/cache/restore@v4
         id: cache-db
@@ -28,28 +22,23 @@ jobs:
           restore-keys: |
             portfolio-db-
 
-      # Python kurulumu
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # Gerekli paketler
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install requests pandas numpy pyyaml
 
-      # Botu çalıştır
       - name: Run BIST Bot
         env:
           SENDER_EMAIL: ${{ secrets.EMAIL_SENDER }}
           SENDER_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.EMAIL_RECIPIENT }}
-        run: |
-          python main.py
+        run: python main.py
 
-      # Portföy verisini kaydet
       - name: Save portfolio
         if: always()
         uses: actions/cache/save@v4
