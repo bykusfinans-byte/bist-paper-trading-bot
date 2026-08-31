@@ -1,0 +1,41 @@
+name: BIST Bot
+
+on:
+  schedule:
+    - cron: '0 7,8,9,10,11,12,13,14,15 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Restore portfolio
+        uses: actions/cache/restore@v4
+        id: cache-db
+        with:
+          path: data/portfolio.db
+          key: portfolio-db
+          restore-keys: portfolio-db-
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - run: |
+          pip install --upgrade pip
+          pip install requests pandas numpy pyyaml
+      
+      - run: python main.py
+        env:
+          SENDER_EMAIL: ${{ secrets.EMAIL_SENDER }}
+          SENDER_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.EMAIL_RECIPIENT }}
+      
+      - name: Save portfolio
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/portfolio.db
+          key: portfolio-db
