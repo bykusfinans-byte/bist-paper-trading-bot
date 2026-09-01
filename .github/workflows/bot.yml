@@ -4,7 +4,7 @@ on:
   schedule:
     # Her 15 dakikada bir dene (piyasa saatleri UTC 06:00-15:00 = TR 09:00-18:00)
     # Kaçırılan tetiklemeleri tolere etmek için sık aralık + kod içi tekrar kontrolü kullanılıyor
-    - cron: '*/15 6-15 * * 1-5'
+    - cron: '7,22,37,52 6-15 * * 1-5'
   workflow_dispatch:
 
 permissions:
