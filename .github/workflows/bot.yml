@@ -2,9 +2,8 @@ name: BIST Bot
 
 on:
   schedule:
-    # Türkiye 09:00–18:00 (UTC 06:00–15:00)
-    - cron: "0,30 6-14 * * 1-5"
-    - cron: "0 15 * * 1-5"
+    - cron: '0,30 6-14 * * 1-5'
+    - cron: '0 15 * * 1-5'
   workflow_dispatch:
 
 permissions:
