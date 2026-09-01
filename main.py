@@ -291,5 +291,12 @@ def run_bot():
     return "Analiz tamamlandi ve mail gonderildi.", 200
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    # Eğer GitHub Actions ortamındaysak web sunucusu açma, analizi yap ve bitir
+    if os.environ.get('GITHUB_ACTIONS') == 'true':
+        logger.info("🤖 GitHub Actions ortamı algılandı, analiz başlatılıyor...")
+        run()
+        logger.info("✅ Analiz tamamlandı, çıkış yapılıyor.")
+    else:
+        # Render veya yerel bilgisayardaysak Flask web sunucusunu başlat
+        port = int(os.environ.get('PORT', 5000))
+        app.run(host='0.0.0.0', port=port)
