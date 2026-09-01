@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# === BIST BOT - DÜZELTİLMİŞ KOD ===
-import threading
 import requests
 import pandas as pd
 import numpy as np
@@ -12,7 +9,7 @@ import sys
 import json
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
@@ -37,7 +34,7 @@ def fetch_stock(symbol, interval="4h", days=60):
     params = {"period1": start_ts, "period2": end_ts, "interval": interval, "events": "history"}
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
-        r = requests.get(url, params=params, headers=headers, timeout=30)
+        r = requests.get(url, params=params, headers=headers, timeout=15)
         data = r.json()
         if "chart" not in data or not data["chart"]["result"]:
             return None
@@ -192,7 +189,7 @@ def sell(symbol, price, reason, path="data/portfolio.db"):
 
 def send_mail(subject, html, cfg):
     if not cfg.get('enabled'):
-        logger.warning("⚠️ E-posta gönderimi config ayarlarında pasif (enabled: False)")
+        logger.warning("⚠️ E-posta gönderimi config ayarlarında pasif")
         return False
     try:
         msg = MIMEMultipart('alternative')
@@ -201,12 +198,12 @@ def send_mail(subject, html, cfg):
         msg['To'] = cfg['recipient_email']
         msg.attach(MIMEText(html, 'html', 'utf-8'))
         
-        # timeout=10 eklenerek takılı kalması engellendi
-        with smtplib.SMTP(cfg['smtp_server'], cfg['smtp_port'], timeout=10) as s:
+        # 15 saniye zaman aşımı
+        with smtplib.SMTP(cfg['smtp_server'], cfg['smtp_port'], timeout=15) as s:
             s.starttls()
             s.login(cfg['sender_email'], cfg['sender_password'])
             s.send_message(msg)
-        logger.info(f"✅ E-posta: {subject}")
+        logger.info(f"✅ E-posta gönderildi: {subject}")
         return True
     except Exception as e:
         logger.error(f"❌ E-posta hatasi: {e}")
@@ -215,7 +212,6 @@ def send_mail(subject, html, cfg):
 def run():
     logger.info("="*60)
     logger.info("🚀 BIST Bot v2.0 Baslatiliyor...")
-    logger.info(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("="*60)
 
     cfg = load_config()
@@ -228,42 +224,32 @@ def run():
             email[k] = os.environ[env]
 
     signals = []
-    trades = 0
 
     for sym in cfg['watchlist']:
         try:
-            logger.info(f"\n🔍 {sym} analiz ediliyor...")
+            logger.info(f"🔍 {sym} analiz ediliyor...")
             df = fetch_stock(sym, cfg['data']['interval'], cfg['data']['lookback_days'])
             if df is None:
-                logger.warning(f"⚠️ {sym}: Veri yok")
                 continue
 
             sig, reason, price, ind = check_signal(df, cfg['indicators'])
-            signals.append({
-                'symbol': sym,
-                'signal': sig,
-                'price': price,
-                'reason': reason,
-                'indicators': ind
-            })
+            signals.append({'symbol': sym, 'signal': sig, 'price': price, 'reason': reason, 'indicators': ind})
             logger.info(f"📌 {sym} | Sinyal: {sig} | Fiyat: {price:.2f}")
 
             pos = next((p for p in get_pos() if p['symbol'] == sym), None)
             if pos:
                 if price <= pos['stop_loss']:
-                    ok, msg = sell(sym, price, f"Stop-loss", "data/portfolio.db")
-                    if ok: send_mail(f"🔴 SATIS: {sym}", f"<h2>SATIS: {sym}</h2><p>{msg}</p>", email); trades += 1
+                    ok, msg = sell(sym, price, "Stop-loss")
+                    if ok: send_mail(f"🔴 SATIS: {sym}", f"<h2>SATIS: {sym}</h2><p>{msg}</p>", email)
                 elif price >= pos['take_profit']:
-                    ok, msg = sell(sym, price, f"Take-profit", "data/portfolio.db")
-                    if ok: send_mail(f"🟢 KAR SATISI: {sym}", f"<h2>KAR SATISI: {sym}</h2><p>{msg}</p>", email); trades += 1
+                    ok, msg = sell(sym, price, "Take-profit")
+                    if ok: send_mail(f"🟢 KAR SATISI: {sym}", f"<h2>KAR SATISI: {sym}</h2><p>{msg}</p>", email)
             else:
                 if sig == 'BUY':
                     ok, msg = buy(sym, price, reason, cfg['portfolio']['max_position_per_stock'])
                     if ok:
-                        buy_html = f"🟢 AL SİNYALİ: {sym} • {price:.2f} ₺"
-                        send_mail(f"🟢 ALIM: {sym}", buy_html, email)
-                        trades += 1
-            time.sleep(0.5)
+                        send_mail(f"🟢 ALIM: {sym}", f"<h2>AL SİNYALİ: {sym}</h2><p>{msg}</p>", email)
+            time.sleep(0.1) # İsteği hızlandırmak için uyku süresi düşürüldü
         except Exception as e:
             logger.error(f"❌ {sym} hata: {e}")
 
@@ -273,87 +259,37 @@ def run():
     ind_rows = ""
     for s in signals:
         i = s.get("indicators", {})
-        if not i:
-            ind_rows += f"<tr><td style='padding:8px;border:1px solid #e5e7eb;'>{s['symbol']}</td><td colspan='8' align='center' style='padding:8px;border:1px solid #e5e7eb;color:#999;'>Veri yok</td></tr>"
-            continue
+        if not i: continue
         sig_color = "#16A34A" if s["signal"]=="BUY" else "#64748B"
         sig_text = "AL" if s["signal"]=="BUY" else "BEKLE"
-        rsi_color = "#DC2626" if i["rsi"]>70 else "#16A34A" if i["rsi"]<30 else "#111827"
-        macd_color = "#16A34A" if i["macd"]>0 else "#DC2626"
-        adx_color = "#16A34A" if i["adx"]>20 else "#DC2626"
         ind_rows += f"""<tr>
-<td style='padding:8px;border:1px solid #e5e7eb;font-weight:bold;'>{s['symbol']}</td>
-<td align='center' style='padding:8px;border:1px solid #e5e7eb;color:{sig_color};font-weight:bold;'>{sig_text}</td>
-<td align='center' style='padding:8px;border:1px solid #e5e7eb;'>{i['price']:.2f}</td>
-<td align='center' style='padding:8px;border:1px solid #e5e7eb;'>{i['ema9']:.2f}</td>
-<td align='center' style='padding:8px;border:1px solid #e5e7eb;'>{i['ema21']:.2f}</td>
-<td align='center' style='padding:8px;border:1px solid #e5e7eb;'>{i['sma50']:.2f}</td>
-<td align='center' style='padding:8px;border:1px solid #e5e7eb;color:{rsi_color};font-weight:bold;'>{i['rsi']:.1f}</td>
-<td align='center' style='padding:8px;border:1px solid #e5e7eb;color:{macd_color};font-weight:bold;'>{i['macd']:.2f}</td>
-<td align='center' style='padding:8px;border:1px solid #e5e7eb;color:{adx_color};font-weight:bold;'>{i['adx']:.1f}</td>
-</tr>"""
-
-    pos_rows = ""
-    for p in pos_list:
-        pos_rows += f"""
-        <tr style="border-bottom:1px solid #e0e0e0;">
-            <td style="padding:12px;font-weight:bold;">{p['symbol']}</td>
-            <td style="padding:12px;text-align:center;">{p['shares']:.2f}</td>
-            <td style="padding:12px;text-align:center;">{p['entry_price']:.2f}</td>
-            <td style="padding:12px;text-align:center;color:#e74c3c;">{p['stop_loss']:.2f}</td>
-            <td style="padding:12px;text-align:center;color:#27ae60;">{p['take_profit']:.2f}</td>
+        <td style='padding:8px;border:1px solid #e5e7eb;'><b>{s['symbol']}</b></td>
+        <td align='center' style='padding:8px;border:1px solid #e5e7eb;color:{sig_color};'><b>{sig_text}</b></td>
+        <td align='center' style='padding:8px;border:1px solid #e5e7eb;'>{i['price']:.2f}</td>
+        <td align='center' style='padding:8px;border:1px solid #e5e7eb;'>{i['rsi']:.1f}</td>
+        <td align='center' style='padding:8px;border:1px solid #e5e7eb;'>{i['macd']:.2f}</td>
         </tr>"""
 
-    if not pos_rows:
-        pos_rows = '<tr><td colspan="5" style="padding:20px;text-align:center;">Açık pozisyon yok</td></tr>'
+    html = f"""<!DOCTYPE html><html><body>
+    <h2>📊 BIST AI PRO Raporu</h2>
+    <p><b>Nakit:</b> {bal['cash']:,.0f} TL | <b>Toplam Portföy:</b> {bal['total_value']:,.0f} TL</p>
+    <table border="1" cellpadding="5" cellspacing="0">
+    <tr><th>Hisse</th><th>Sinyal</th><th>Fiyat</th><th>RSI</th><th>MACD</th></tr>
+    {ind_rows}
+    </table></body></html>"""
 
-    html = f"""<!DOCTYPE html><html><head><meta charset='UTF-8'></head>
-<body style='margin:0;background:#eef2f7;font-family:Arial,Helvetica,sans-serif;'>
-<table width='100%' cellpadding='20'><tr><td align='center'>
-<table width='680' cellpadding='0' cellspacing='0' style='background:#fff;border:1px solid #d1d5db;'>
-<tr><td bgcolor='#0F766E' style='padding:22px;text-align:center;'>
-<h1 style='margin:0;color:#fff;'>📈 BIST AI PRO</h1>
-<div style='color:#d1fae5;font-size:13px;'>{datetime.now().strftime('%d.%m.%Y %H:%M')}</div></td></tr>
-<tr><td style='padding:18px;'>
-<table width='100%' cellpadding='6'><tr>
-<td width='25%' align='center' style='border:1px solid #e5e7eb;'><div style='font-size:11px;color:#64748b;'>NAKİT</div><b>{bal['cash']:,.0f} ₺</b></td>
-<td width='25%' align='center' style='border:1px solid #e5e7eb;'><div style='font-size:11px;color:#64748b;'>YATIRIM</div><b>{bal['total_invested']:,.0f} ₺</b></td>
-<td width='25%' align='center' style='border:1px solid #e5e7eb;'><div style='font-size:11px;color:#64748b;'>TOPLAM</div><b>{bal['total_value']:,.0f} ₺</b></td>
-<td width='25%' align='center' style='border:1px solid #e5e7eb;'><div style='font-size:11px;color:#64748b;'>POZİSYON</div><b>{len(pos_list)}</b></td>
-</tr></table>
-<h2 style='color:#1e293b;'>📊 Teknik Analiz</h2>
-<table width='100%' cellpadding='9' cellspacing='0' style='border-collapse:collapse;border:1px solid #d1d5db;'>
-<tr bgcolor='#1E293B'><th align='left' style='color:#fff;'>Hisse</th><th style='color:#fff;'>Sinyal</th><th style='color:#fff;'>Fiyat</th><th style='color:#fff;'>EMA9</th><th style='color:#fff;'>EMA21</th><th style='color:#fff;'>SMA50</th><th style='color:#fff;'>RSI</th><th style='color:#fff;'>MACD</th><th style='color:#fff;'>ADX</th></tr>
-{ind_rows}
-</table>
-<h2 style='color:#1e293b;margin-top:22px;'>📋 Açık Pozisyonlar</h2>
-<table width='100%' cellpadding='8' cellspacing='0' style='border-collapse:collapse;border:1px solid #d1d5db;'>
-<tr bgcolor='#1E293B'><th align='left' style='color:#fff;'>Hisse</th><th style='color:#fff;'>Lot</th><th style='color:#fff;'>Alış</th><th style='color:#fff;'>Stop</th><th style='color:#fff;'>Hedef</th></tr>
-{pos_rows}
-</table>
-</td></tr>
-<tr><td bgcolor='#F8FAFC' style='padding:12px;text-align:center;color:#64748b;font-size:11px;'>BIST AI PRO • Otomatik Teknik Analiz Sistemi</td></tr>
-</table></td></tr></table></body></html>"""
+    # Şartsız doğrudan mail atalım
+    send_mail(f"📊 BIST Bot Raporu ({datetime.now().strftime('%d.%m %H:%M')})", html, email)
 
-    if should_send_now("data/portfolio.db", interval_minutes=30):
-        send_mail(f"📊 BIST Bot Raporu ({datetime.now().strftime('%d.%m %H:%M')})", html, email)
-        mark_sent("data/portfolio.db")
-        logger.info("✅ Özet rapor maili gönderildi")
-    else:
-        logger.info("⏳ Rapor maili için henüz 30 dakika dolmadı, atlanıyor")
-
-    Path("reports").mkdir(exist_ok=True)
-    with open(f"reports/signals_{datetime.now().strftime('%Y%m%d_%H%M')}.json", 'w') as f:
-        json.dump(signals, f, ensure_ascii=False, indent=2)
+@app.route('/')
+def home():
+    return "BIST Bot Aktif", 200
 
 @app.route('/run-bot')
 def run_bot():
-    try:
-        # Analizi arka planda başlat
-        bot_thread = threading.Thread(target=run)
-        bot_thread.start()
-        
-        return "Bot analizi arka planda başlatıldı. Tamamlandığında mail gönderilecek.", 200
-    except Exception as e:
-        logger.error(f"Kritik Çalışma Hatası: {str(e)}")
-        return f"Hata oluştu: {str(e)}", 500
+    run()
+    return "Analiz tamamlandi ve mail gonderildi.", 200
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
