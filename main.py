@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# === BIST BOT - BASLANGIC ===
+# === BIST BOT - DÜZELTİLMİŞ KOD ===
 
 import requests
 import pandas as pd
@@ -12,41 +12,18 @@ import sys
 import json
 import os
 import time
-import os
-from flask import Flask
-
-app = Flask(__name__)
-
-def email_gonder_botu():
-    # --- MEVCUT BORSA VE MAIL KODLARINIZ BURADA YER ALACAK ---
-    print("Borsa botu çalıştırıldı, mail gönderiliyor...")
-    # e-posta gönderme fonksiyonunuz()
-    return True
-
-@app.route('/')
-def home():
-    return "Borsa Botu Aktif!"
-
-@app.route('/run-bot')
-def run_bot():
-    try:
-        email_gonder_botu()
-        return "Bot başarıyla çalıştı ve mail gönderildi.", 200
-    except Exception as e:
-        return f"Hata oluştu: {str(e)}", 500
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
+from flask import Flask
 
 from mail_gate import should_send_now, mark_sent
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s', handlers=[logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
 
 def load_config(path="config/config.yaml"):
     with open(path, 'r', encoding='utf-8') as f:
@@ -132,7 +109,6 @@ def check_signal(df, cfg):
     trend = price > latest['EMA9'] > latest['EMA21'] > latest['SMA50']
     adx = latest['ADX'] > cfg['adx_threshold']
     macd = latest['MACD'] > 0
-    # bb = latest['BB_Lower'] <= price <= latest['BB_Upper']
     vol = latest['Volume'] >= latest['Volume_MA'] * 0.5
 
     reasons = []
@@ -144,7 +120,6 @@ def check_signal(df, cfg):
         reasons.append("Trend:" + ",".join(r))
     if not adx: reasons.append(f"ADX({latest['ADX']:.1f})<={cfg['adx_threshold']}")
     if not macd: reasons.append(f"MACD({latest['MACD']:.2f})<=0")
-    # if not bb: reasons.append("BB disinda")
     if not vol: reasons.append("Hacim dusuk")
 
     indicators = {
@@ -217,6 +192,7 @@ def sell(symbol, price, reason, path="data/portfolio.db"):
 
 def send_mail(subject, html, cfg):
     if not cfg.get('enabled'):
+        logger.warning("⚠️ E-posta gönderimi config ayarlarında pasif (enabled: False)")
         return False
     try:
         msg = MIMEMultipart('alternative')
@@ -232,7 +208,7 @@ def send_mail(subject, html, cfg):
         return True
     except Exception as e:
         logger.error(f"❌ E-posta hatasi: {e}")
-        return False
+        raise e
 
 def run():
     logger.info("="*60)
@@ -269,8 +245,6 @@ def run():
                 'indicators': ind
             })
             logger.info(f"📌 {sym} | Sinyal: {sig} | Fiyat: {price:.2f}")
-            if sig == 'HOLD' and reason != 'Yetersiz veri':
-                logger.info(f"   ↳ {reason}")
 
             pos = next((p for p in get_pos() if p['symbol'] == sym), None)
             if pos:
@@ -284,25 +258,9 @@ def run():
                 if sig == 'BUY':
                     ok, msg = buy(sym, price, reason, cfg['portfolio']['max_position_per_stock'])
                     if ok:
-                        buy_html = f"""<!DOCTYPE html>
-<html><body style="margin:0;background:#eef2f7;font-family:Arial,Helvetica,sans-serif;">
-<table width="100%" cellpadding="20"><tr><td align="center">
-<table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border:1px solid #d1d5db;">
-<tr><td bgcolor="#16A34A" style="padding:22px;text-align:center;">
-<h1 style="margin:0;color:#fff;">🟢 AL SİNYALİ</h1>
-<div style="color:#dcfce7;margin-top:8px;">{sym} • {price:.2f} ₺</div></td></tr>
-<tr><td style="padding:20px;">
-<table width="100%" cellpadding="8">
-<tr><td><b>Hisse</b></td><td align="right">{sym}</td></tr>
-<tr><td><b>Fiyat</b></td><td align="right">{price:.2f} ₺</td></tr>
-<tr><td><b>İşlem</b></td><td align="right" style="color:#16A34A;font-weight:bold;">AL</td></tr>
-<tr><td><b>Sebep</b></td><td align="right">{reason}</td></tr>
-</table></td></tr>
-<tr><td bgcolor="#F8FAFC" style="padding:12px;text-align:center;font-size:11px;color:#64748b;">BIST AI PRO</td></tr>
-</table></td></tr></table></body></html>"""
+                        buy_html = f"🟢 AL SİNYALİ: {sym} • {price:.2f} ₺"
                         send_mail(f"🟢 ALIM: {sym}", buy_html, email)
                         trades += 1
-                        logger.info(f"✅ {msg}")
             time.sleep(0.5)
         except Exception as e:
             logger.error(f"❌ {sym} hata: {e}")
@@ -310,12 +268,11 @@ def run():
     bal = get_bal()
     pos_list = get_pos()
 
-    # === INDIKATOR TABLOSU ===
     ind_rows = ""
     for s in signals:
         i = s.get("indicators", {})
         if not i:
-            ind_rows += f"<tr><td style='padding:8px;border:1px solid #e5e7eb;'>{s['symbol']}</td><td colspan='7' align='center' style='padding:8px;border:1px solid #e5e7eb;color:#999;'>Veri yok</td></tr>"
+            ind_rows += f"<tr><td style='padding:8px;border:1px solid #e5e7eb;'>{s['symbol']}</td><td colspan='8' align='center' style='padding:8px;border:1px solid #e5e7eb;color:#999;'>Veri yok</td></tr>"
             continue
         sig_color = "#16A34A" if s["signal"]=="BUY" else "#64748B"
         sig_text = "AL" if s["signal"]=="BUY" else "BEKLE"
@@ -334,7 +291,6 @@ def run():
 <td align='center' style='padding:8px;border:1px solid #e5e7eb;color:{adx_color};font-weight:bold;'>{i['adx']:.1f}</td>
 </tr>"""
 
-    # === ACIK POZISYONLAR ===
     pos_rows = ""
     for p in pos_list:
         pos_rows += f"""
@@ -349,7 +305,6 @@ def run():
     if not pos_rows:
         pos_rows = '<tr><td colspan="5" style="padding:20px;text-align:center;">Açık pozisyon yok</td></tr>'
 
-    # === RAPOR HTML ===
     html = f"""<!DOCTYPE html><html><head><meta charset='UTF-8'></head>
 <body style='margin:0;background:#eef2f7;font-family:Arial,Helvetica,sans-serif;'>
 <table width='100%' cellpadding='20'><tr><td align='center'>
@@ -378,7 +333,6 @@ def run():
 <tr><td bgcolor='#F8FAFC' style='padding:12px;text-align:center;color:#64748b;font-size:11px;'>BIST AI PRO • Otomatik Teknik Analiz Sistemi</td></tr>
 </table></td></tr></table></body></html>"""
 
-    # === ÖZET RAPOR MAILI: sık cron tetiklemelerinde spam olmasin diye kisitlandi ===
     if should_send_now("data/portfolio.db", interval_minutes=30):
         send_mail(f"📊 BIST Bot Raporu ({datetime.now().strftime('%d.%m %H:%M')})", html, email)
         mark_sent("data/portfolio.db")
@@ -390,10 +344,19 @@ def run():
     with open(f"reports/signals_{datetime.now().strftime('%Y%m%d_%H%M')}.json", 'w') as f:
         json.dump(signals, f, ensure_ascii=False, indent=2)
 
-    logger.info(f"\n{'='*60}")
-    logger.info(f"📊 OZET: {len(signals)} hisse | {trades} islem | {len(pos_list)} pozisyon | {bal['total_value']:,.0f} TL")
-    logger.info(f"{'='*60}")
+@app.route('/')
+def home():
+    return "Borsa Botu Aktif!"
 
-if __name__ == "__main__":
-    run()
-# === BIST BOT - BITIS ===
+@app.route('/run-bot')
+def run_bot():
+    try:
+        run()  # Gerçek analiz ve mail gönderme mekanizması çalıştırılıyor
+        return "Bot başarıyla çalıştı ve mail gönderildi.", 200
+    except Exception as e:
+        logger.error(f"Kritik Çalışma Hatası: {str(e)}")
+        return f"Hata oluştu: {str(e)}", 500
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
