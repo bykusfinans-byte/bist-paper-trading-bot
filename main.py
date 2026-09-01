@@ -17,6 +17,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 
+from mail_gate import should_send_now, mark_sent
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s', handlers=[logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger(__name__)
 
@@ -71,7 +73,7 @@ def add_indicators(df, cfg):
     df['EMA21'] = c.ewm(span=cfg['ema_slow'], adjust=False).mean()
     df['SMA50'] = c.rolling(window=cfg['sma_trend']).mean()
     df['RSI'] = calc_rsi(c, 14)
-    
+
     h, l, cl = df['High'], df['Low'], df['Close']
     pdm = h.diff().clip(lower=0)
     mdm = (-l.diff()).clip(lower=0)
@@ -82,11 +84,11 @@ def add_indicators(df, cfg):
     mdi = 100*(mdm.rolling(window=cfg['adx_period']).mean()/atr)
     dx = 100*abs(pdi-mdi)/(pdi+mdi)
     df['ADX'] = dx.rolling(window=cfg['adx_period']).mean()
-    
+
     emaf = c.ewm(span=cfg['macd_fast'], adjust=False).mean()
     emas = c.ewm(span=cfg['macd_slow'], adjust=False).mean()
     df['MACD'] = emaf - emas
-    
+
     sma20 = c.rolling(window=cfg['bb_period']).mean()
     std20 = c.rolling(window=cfg['bb_period']).std()
     df['BB_Upper'] = sma20 + std20*cfg['bb_std']
@@ -100,13 +102,13 @@ def check_signal(df, cfg):
     df = add_indicators(df, cfg)
     latest = df.iloc[-1]
     price = float(latest['Close'])
-    
+
     trend = price > latest['EMA9'] > latest['EMA21'] > latest['SMA50']
     adx = latest['ADX'] > cfg['adx_threshold']
     macd = latest['MACD'] > 0
     # bb = latest['BB_Lower'] <= price <= latest['BB_Upper']
     vol = latest['Volume'] >= latest['Volume_MA'] * 0.5
-    
+
     reasons = []
     if not trend:
         r = []
@@ -118,7 +120,7 @@ def check_signal(df, cfg):
     if not macd: reasons.append(f"MACD({latest['MACD']:.2f})<=0")
     # if not bb: reasons.append("BB disinda")
     if not vol: reasons.append("Hacim dusuk")
-    
+
     indicators = {
         'price': price,
         'ema9': float(latest['EMA9']),
@@ -128,7 +130,7 @@ def check_signal(df, cfg):
         'macd': float(latest['MACD']),
         'adx': float(latest['ADX']),
     }
-    
+
     if trend and adx and macd and vol:
         return 'BUY', 'Tum kosullar saglandi', price, indicators
     return 'HOLD', ' | '.join(reasons), price, indicators
@@ -211,19 +213,19 @@ def run():
     logger.info("🚀 BIST Bot v2.0 Baslatiliyor...")
     logger.info(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("="*60)
-    
+
     cfg = load_config()
     init_db()
-    
+
     email = cfg['notifications']['email']
     for k in ['sender_email','sender_password','recipient_email']:
         env = k.upper()
         if os.environ.get(env):
             email[k] = os.environ[env]
-    
+
     signals = []
     trades = 0
-    
+
     for sym in cfg['watchlist']:
         try:
             logger.info(f"\n🔍 {sym} analiz ediliyor...")
@@ -231,19 +233,19 @@ def run():
             if df is None:
                 logger.warning(f"⚠️ {sym}: Veri yok")
                 continue
-            
+
             sig, reason, price, ind = check_signal(df, cfg['indicators'])
             signals.append({
-                'symbol': sym, 
-                'signal': sig, 
-                'price': price, 
+                'symbol': sym,
+                'signal': sig,
+                'price': price,
                 'reason': reason,
                 'indicators': ind
             })
             logger.info(f"📌 {sym} | Sinyal: {sig} | Fiyat: {price:.2f}")
             if sig == 'HOLD' and reason != 'Yetersiz veri':
                 logger.info(f"   ↳ {reason}")
-            
+
             pos = next((p for p in get_pos() if p['symbol'] == sym), None)
             if pos:
                 if price <= pos['stop_loss']:
@@ -278,10 +280,10 @@ def run():
             time.sleep(0.5)
         except Exception as e:
             logger.error(f"❌ {sym} hata: {e}")
-    
+
     bal = get_bal()
     pos_list = get_pos()
-    
+
     # === INDIKATOR TABLOSU ===
     ind_rows = ""
     for s in signals:
@@ -317,10 +319,10 @@ def run():
             <td style="padding:12px;text-align:center;color:#e74c3c;">{p['stop_loss']:.2f}</td>
             <td style="padding:12px;text-align:center;color:#27ae60;">{p['take_profit']:.2f}</td>
         </tr>"""
-    
+
     if not pos_rows:
         pos_rows = '<tr><td colspan="5" style="padding:20px;text-align:center;">Açık pozisyon yok</td></tr>'
-    
+
     # === RAPOR HTML ===
     html = f"""<!DOCTYPE html><html><head><meta charset='UTF-8'></head>
 <body style='margin:0;background:#eef2f7;font-family:Arial,Helvetica,sans-serif;'>
@@ -350,12 +352,18 @@ def run():
 <tr><td bgcolor='#F8FAFC' style='padding:12px;text-align:center;color:#64748b;font-size:11px;'>BIST AI PRO • Otomatik Teknik Analiz Sistemi</td></tr>
 </table></td></tr></table></body></html>"""
 
-    send_mail(f"📊 BIST Bot Raporu ({datetime.now().strftime('%d.%m %H:%M')})", html, email)
-    
+    # === ÖZET RAPOR MAILI: sık cron tetiklemelerinde spam olmasin diye kisitlandi ===
+    if should_send_now("data/portfolio.db", interval_minutes=30):
+        send_mail(f"📊 BIST Bot Raporu ({datetime.now().strftime('%d.%m %H:%M')})", html, email)
+        mark_sent("data/portfolio.db")
+        logger.info("✅ Özet rapor maili gönderildi")
+    else:
+        logger.info("⏳ Rapor maili için henüz 30 dakika dolmadı, atlanıyor")
+
     Path("reports").mkdir(exist_ok=True)
     with open(f"reports/signals_{datetime.now().strftime('%Y%m%d_%H%M')}.json", 'w') as f:
         json.dump(signals, f, ensure_ascii=False, indent=2)
-    
+
     logger.info(f"\n{'='*60}")
     logger.info(f"📊 OZET: {len(signals)} hisse | {trades} islem | {len(pos_list)} pozisyon | {bal['total_value']:,.0f} TL")
     logger.info(f"{'='*60}")
