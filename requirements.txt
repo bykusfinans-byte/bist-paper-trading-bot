@@ -2,3 +2,5 @@ requests
 pandas
 numpy
 pyyaml
+flask
+gunicorn
