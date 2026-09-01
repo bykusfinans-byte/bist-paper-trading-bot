@@ -2,8 +2,9 @@ name: BIST Bot
 
 on:
   schedule:
-    - cron: '0,30 6-14 * * 1-5'
-    - cron: '0 15 * * 1-5'
+    # Her 15 dakikada bir dene (piyasa saatleri UTC 06:00-15:00 = TR 09:00-18:00)
+    # Kaçırılan tetiklemeleri tolere etmek için sık aralık + kod içi tekrar kontrolü kullanılıyor
+    - cron: '*/15 6-15 * * 1-5'
   workflow_dispatch:
 
 permissions:
@@ -12,19 +13,20 @@ permissions:
 jobs:
   bot:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      # Portfolio veritabanını geri yükle
+      # Portfolio veritabanını geri yükle (sabit key kullanılıyor)
       - name: Restore portfolio
         uses: actions/cache/restore@v4
         with:
           path: data/portfolio.db
-          key: portfolio-db
+          key: portfolio-db-v1
           restore-keys: |
-            portfolio-db
+            portfolio-db-v1
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -43,10 +45,23 @@ jobs:
           RECIPIENT_EMAIL: ${{ secrets.EMAIL_RECIPIENT }}
         run: python main.py
 
-      # Portfolio'yu tekrar kaydet
+      # Portfolio'yu tekrar kaydet (run_id ile benzersiz, restore-keys ile eşleşir)
       - name: Save portfolio
         if: always()
         uses: actions/cache/save@v4
         with:
           path: data/portfolio.db
-          key: portfolio-db-${{ github.run_id }}
+          key: portfolio-db-v1-${{ github.run_id }}
+
+      # Repoyu "aktif" tutmak için son çalışma zamanını commit'le
+      # GitHub, 60 gün commit gelmeyen repolarda scheduled workflow'ları otomatik kapatır
+      - name: Keep repo active
+        if: always()
+        run: |
+          mkdir -p data
+          date -u "+%Y-%m-%d %H:%M:%S UTC" > data/last_run.log
+          git config user.name "bist-bot"
+          git config user.email "bist-bot@users.noreply.github.com"
+          git add data/last_run.log
+          git diff --staged --quiet || git commit -m "chore: keep-alive $(date -u +%Y-%m-%d)"
+          git push || echo "Push başarısız oldu, devam ediliyor"
