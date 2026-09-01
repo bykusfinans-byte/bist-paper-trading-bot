@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # === BIST BOT - DÜZELTİLMİŞ KOD ===
-
+import threading
 import requests
 import pandas as pd
 import numpy as np
@@ -200,7 +200,9 @@ def send_mail(subject, html, cfg):
         msg['From'] = cfg['sender_email']
         msg['To'] = cfg['recipient_email']
         msg.attach(MIMEText(html, 'html', 'utf-8'))
-        with smtplib.SMTP(cfg['smtp_server'], cfg['smtp_port']) as s:
+        
+        # timeout=10 eklenerek takılı kalması engellendi
+        with smtplib.SMTP(cfg['smtp_server'], cfg['smtp_port'], timeout=10) as s:
             s.starttls()
             s.login(cfg['sender_email'], cfg['sender_password'])
             s.send_message(msg)
@@ -208,7 +210,7 @@ def send_mail(subject, html, cfg):
         return True
     except Exception as e:
         logger.error(f"❌ E-posta hatasi: {e}")
-        raise e
+        return False
 
 def run():
     logger.info("="*60)
@@ -344,19 +346,14 @@ def run():
     with open(f"reports/signals_{datetime.now().strftime('%Y%m%d_%H%M')}.json", 'w') as f:
         json.dump(signals, f, ensure_ascii=False, indent=2)
 
-@app.route('/')
-def home():
-    return "Borsa Botu Aktif!"
-
 @app.route('/run-bot')
 def run_bot():
     try:
-        run()  # Gerçek analiz ve mail gönderme mekanizması çalıştırılıyor
-        return "Bot başarıyla çalıştı ve mail gönderildi.", 200
+        # Analizi arka planda başlat
+        bot_thread = threading.Thread(target=run)
+        bot_thread.start()
+        
+        return "Bot analizi arka planda başlatıldı. Tamamlandığında mail gönderilecek.", 200
     except Exception as e:
         logger.error(f"Kritik Çalışma Hatası: {str(e)}")
         return f"Hata oluştu: {str(e)}", 500
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
