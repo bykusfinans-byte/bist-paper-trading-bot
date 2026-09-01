@@ -12,6 +12,32 @@ import sys
 import json
 import os
 import time
+import os
+from flask import Flask
+
+app = Flask(__name__)
+
+def email_gonder_botu():
+    # --- MEVCUT BORSA VE MAIL KODLARINIZ BURADA YER ALACAK ---
+    print("Borsa botu çalıştırıldı, mail gönderiliyor...")
+    # e-posta gönderme fonksiyonunuz()
+    return True
+
+@app.route('/')
+def home():
+    return "Borsa Botu Aktif!"
+
+@app.route('/run-bot')
+def run_bot():
+    try:
+        email_gonder_botu()
+        return "Bot başarıyla çalıştı ve mail gönderildi.", 200
+    except Exception as e:
+        return f"Hata oluştu: {str(e)}", 500
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
