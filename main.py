@@ -96,8 +96,12 @@ def check_signal(df, cfg):
     trend = price > latest['EMA9'] > latest['EMA21'] > latest['SMA50']
     adx = latest['ADX'] > cfg['adx_threshold']
     macd = latest['MACD'] > 0
-    # bb = latest['BB_Lower'] <= price <= latest['BB_Upper']   # PASIF
-    # vol = latest['Volume'] >= latest['Volume_MA'] * 0.2      # PASIF
+    # bb = latest['BB_Lower'] <= price <= latest['BB_Upper']   # PASIF (alim kararinda kullanilmiyor)
+
+    # Hacim artik AL/HOLD kararini engellemiyor, sadece pozisyon buyuklugu icin
+    # bir "guc" gostergesi olarak kullaniliyor (bkz: calc_position_size).
+    vol_ratio = float(latest['Volume'] / latest['Volume_MA']) if latest['Volume_MA'] else 0.0
+    macd_strength = (latest['MACD'] / price) * 100 if price else 0.0
 
     reasons = []
     if not trend:
@@ -108,8 +112,6 @@ def check_signal(df, cfg):
         reasons.append("Trend:" + ",".join(r))
     if not adx: reasons.append(f"ADX({latest['ADX']:.1f})<={cfg['adx_threshold']}")
     if not macd: reasons.append(f"MACD({latest['MACD']:.2f})<=0")
-    # if not bb: reasons.append("BB disinda")     # PASIF
-    # if not vol: reasons.append("Hacim dusuk")   # PASIF
 
     indicators = {
         'price': price,
@@ -119,11 +121,31 @@ def check_signal(df, cfg):
         'rsi': float(latest['RSI']),
         'macd': float(latest['MACD']),
         'adx': float(latest['ADX']),
+        'vol_ratio': vol_ratio,
+        'macd_strength': macd_strength,
     }
 
-    if trend and adx and macd:   # vol ve bb kaldirildi
+    if trend and adx and macd:   # vol ve bb AL kararina dahil degil
         return 'BUY', 'Tum kosullar saglandi', price, indicators
     return 'HOLD', ' | '.join(reasons), price, indicators
+
+def calc_position_size(macd_strength, vol_ratio, cfg):
+    """MACD gucu ve hacim gucune gore pozisyon buyuklugunu (TL) belirler.
+    - MACD gucu = (MACD / Fiyat) * 100   -> hisseler arasi karsilastirilabilir yuzde
+    - Hacim gucu = Guncel Hacim / 20 gunluk Ort. Hacim
+    Ikisi de esik ustundeyse tavan tutar, ikisi de altindaysa taban tutar,
+    biri ustunde biri altindaysa ortalama tutar kullanilir."""
+    p = cfg['portfolio']
+    min_size = p['min_position_size']
+    max_size = p['max_position_size']
+    strong_macd = macd_strength >= p['macd_strength_threshold']
+    strong_vol = vol_ratio >= p['volume_strength_threshold']
+
+    if strong_macd and strong_vol:
+        return max_size
+    if not strong_macd and not strong_vol:
+        return min_size
+    return (min_size + max_size) / 2
 
 def init_db(path="data/portfolio.db"):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -150,9 +172,10 @@ def get_pos(path="data/portfolio.db"):
     conn.close()
     return [dict(r) for r in rows]
 
-def buy(symbol, price, reason, max_pct=0.20, path="data/portfolio.db"):
+def buy(symbol, price, reason, size, path="data/portfolio.db"):
+    """size: TL cinsinden hedeflenen sabit yatirim tutari (calc_position_size'dan gelir)."""
     bal = get_bal(path)
-    inv = min(bal['cash'], bal['total_value'] * max_pct)
+    inv = min(bal['cash'], size)
     if inv < 1000:
         return False, 'Yetersiz bakiye'
     shares = inv / price
@@ -162,7 +185,7 @@ def buy(symbol, price, reason, max_pct=0.20, path="data/portfolio.db"):
     conn.execute("UPDATE balance SET cash=cash-?, total_invested=total_invested+?, last_updated=? WHERE id=1", (inv, inv, datetime.now().isoformat()))
     conn.commit()
     conn.close()
-    return True, f'{symbol}: {shares:.2f} lot @ {price:.2f} TL'
+    return True, f'{symbol}: {shares:.2f} lot @ {price:.2f} TL ({inv:,.0f} TL)'
 
 def sell(symbol, price, reason, path="data/portfolio.db"):
     conn = sqlite3.connect(path)
@@ -249,6 +272,8 @@ def run():
             logger.info(f"📌 {sym} | Sinyal: {sig} | Fiyat: {price:.2f}")
             if sig == 'HOLD' and reason != 'Yetersiz veri':
                 logger.info(f"   ↳ {reason}")
+            if ind:
+                logger.info(f"   ↳ MACD gucu: %{ind['macd_strength']:.2f} | Hacim orani: {ind['vol_ratio']:.2f}x")
 
             pos = next((p for p in get_pos() if p['symbol'] == sym), None)
 
@@ -261,7 +286,8 @@ def run():
                     if ok: send_mail(f"🟢 KAR SATISI: {sym}", f"<h2>KAR SATISI: {sym}</h2><p>{msg}</p>", email); trades += 1
             else:
                 if sig == 'BUY':
-                    ok, msg = buy(sym, price, reason, cfg['portfolio']['max_position_per_stock'])
+                    size = calc_position_size(ind['macd_strength'], ind['vol_ratio'], cfg)
+                    ok, msg = buy(sym, price, reason, size)
                     if ok:
                         buy_html = f"""<!DOCTYPE html>
 <html><body style="margin:0;background:#eef2f7;font-family:Arial,Helvetica,sans-serif;">
@@ -274,6 +300,9 @@ def run():
 <table width="100%" cellpadding="8">
 <tr><td><b>Hisse</b></td><td align="right">{sym}</td></tr>
 <tr><td><b>Fiyat</b></td><td align="right">{price:.2f} ₺</td></tr>
+<tr><td><b>Yatirim</b></td><td align="right">{size:,.0f} ₺</td></tr>
+<tr><td><b>MACD Gucu</b></td><td align="right">%{ind['macd_strength']:.2f}</td></tr>
+<tr><td><b>Hacim Orani</b></td><td align="right">{ind['vol_ratio']:.2f}x</td></tr>
 <tr><td><b>İşlem</b></td><td align="right" style="color:#16A34A;font-weight:bold;">AL</td></tr>
 <tr><td><b>Sebep</b></td><td align="right">{reason}</td></tr>
 </table></td></tr>
