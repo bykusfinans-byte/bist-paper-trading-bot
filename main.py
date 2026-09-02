@@ -105,7 +105,7 @@ def check_signal(df, cfg):
     adx = latest['ADX'] > cfg['adx_threshold']
     macd = latest['MACD'] > 0
     # bb = latest['BB_Lower'] <= price <= latest['BB_Upper']
-    vol = latest['Volume'] >= latest['Volume_MA'] * 0.1
+   # vol = latest['Volume'] >= latest['Volume_MA'] * 0
     
     reasons = []
     if not trend:
@@ -117,7 +117,7 @@ def check_signal(df, cfg):
     if not adx: reasons.append(f"ADX({latest['ADX']:.1f})<={cfg['adx_threshold']}")
     if not macd: reasons.append(f"MACD({latest['MACD']:.2f})<=0")
     # if not bb: reasons.append("BB disinda")
-    if not vol: reasons.append("Hacim dusuk")
+   # if not vol: reasons.append("Hacim dusuk")
     
     indicators = {
         'price': price,
