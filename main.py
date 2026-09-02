@@ -105,7 +105,7 @@ def check_signal(df, cfg):
     adx = latest['ADX'] > cfg['adx_threshold']
     macd = latest['MACD'] > 0
     # bb = latest['BB_Lower'] <= price <= latest['BB_Upper']
-    vol = latest['Volume'] >= latest['Volume_MA'] * 0.2
+    vol = latest['Volume'] >= latest['Volume_MA'] * 0.1
     
     reasons = []
     if not trend:
