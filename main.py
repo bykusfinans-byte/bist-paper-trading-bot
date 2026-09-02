@@ -190,18 +190,28 @@ def sell(symbol, price, reason, path="data/portfolio.db"):
 def send_mail(subject, html, cfg):
     if not cfg.get('enabled'):
         return False
+    api_key = os.environ.get('BREVO_API_KEY')
+    if not api_key:
+        logger.error("❌ E-posta hatasi: BREVO_API_KEY tanimli degil")
+        return False
     try:
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = subject
-        msg['From'] = cfg['sender_email']
-        msg['To'] = cfg['recipient_email']
-        msg.attach(MIMEText(html, 'html', 'utf-8'))
-        with smtplib.SMTP(cfg['smtp_server'], cfg['smtp_port']) as s:
-            s.starttls()
-            s.login(cfg['sender_email'], cfg['sender_password'])
-            s.send_message(msg)
-        logger.info(f"✅ E-posta: {subject}")
-        return True
+        payload = {
+            "sender": {"email": cfg['sender_email']},
+            "to": [{"email": cfg['recipient_email']}],
+            "subject": subject,
+            "htmlContent": html,
+        }
+        headers = {
+            "accept": "application/json",
+            "api-key": api_key,
+            "content-type": "application/json",
+        }
+        r = requests.post("https://api.brevo.com/v3/smtp/email", json=payload, headers=headers, timeout=20)
+        if r.status_code in (200, 201):
+            logger.info(f"✅ E-posta: {subject}")
+            return True
+        logger.error(f"❌ E-posta hatasi: {r.status_code} {r.text}")
+        return False
     except Exception as e:
         logger.error(f"❌ E-posta hatasi: {e}")
         return False
