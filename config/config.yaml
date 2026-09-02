@@ -43,7 +43,7 @@ indicators:
 data:
   interval: "4h"
   lookback_days: 60
-  volume_threshold: 0.3
+  volume_threshold: 0.1
 
 notifications:
   email:
