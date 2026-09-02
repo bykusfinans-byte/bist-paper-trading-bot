@@ -31,6 +31,12 @@ watchlist:
 portfolio:
   initial_balance: 100000
   max_position_per_stock: 0.20
+  portfolio:
+  max_position_per_stock: 0.20
+  min_position_size: 2000
+  max_position_size: 5000
+  macd_strength_threshold: 1.0
+  volume_strength_threshold: 1.2
   stop_loss_pct: 0.05
   take_profit_pct: 0.10
 
