@@ -35,37 +35,51 @@ def market_is_open(cfg):
     end_t = datetime.strptime(end, "%H:%M").time()
     return start_t <= now.time() <= end_t
 
-def fetch_stock(symbol, interval="4h", days=60):
+def fetch_stock(symbol, interval="4h", days=60, retries=2):
+    """Yahoo Finance IP basina saatlik istek siniri koyuyor; Render'in paylasimli IP'si
+    yuzunden ara sira 429/bos yanit gelebilir. Bunun icin basit bir retry+backoff var."""
     ticker = f"{symbol}.IS"
     end_ts = int(datetime.now().timestamp())
     start_ts = end_ts - (days * 24 * 60 * 60)
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
     params = {"period1": start_ts, "period2": end_ts, "interval": interval, "events": "history"}
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    try:
-        r = requests.get(url, params=params, headers=headers, timeout=30)
-        data = r.json()
-        if "chart" not in data or not data["chart"]["result"]:
-            return None
-        result = data["chart"]["result"][0]
-        timestamps = result["timestamp"]
-        quote = result["indicators"]["quote"][0]
-        df = pd.DataFrame({
-            "Datetime": [datetime.fromtimestamp(t) for t in timestamps],
-            "Open": quote["open"],
-            "High": quote["high"],
-            "Low": quote["low"],
-            "Close": quote["close"],
-            "Volume": quote["volume"]
-        })
-        df = df.dropna()
-        if len(df) < 55:
-            return None
-        logger.info(f"✅ {symbol}: {len(df)} satir veri")
-        return df
-    except Exception as e:
-        logger.error(f"❌ {symbol} veri hatasi: {e}")
-        return None
+
+    for attempt in range(retries + 1):
+        try:
+            r = requests.get(url, params=params, headers=headers, timeout=30)
+            if r.status_code == 429:
+                wait = 5 * (attempt + 1)
+                logger.warning(f"⏳ {symbol}: Rate limit (429), {wait}s bekleniyor...")
+                time.sleep(wait)
+                continue
+            data = r.json()
+            if "chart" not in data or not data["chart"]["result"]:
+                return None
+            result = data["chart"]["result"][0]
+            timestamps = result["timestamp"]
+            quote = result["indicators"]["quote"][0]
+            df = pd.DataFrame({
+                "Datetime": [datetime.fromtimestamp(t) for t in timestamps],
+                "Open": quote["open"],
+                "High": quote["high"],
+                "Low": quote["low"],
+                "Close": quote["close"],
+                "Volume": quote["volume"]
+            })
+            df = df.dropna()
+            if len(df) < 55:
+                return None
+            logger.info(f"✅ {symbol}: {len(df)} satir veri")
+            return df
+        except Exception as e:
+            if attempt < retries:
+                wait = 3 * (attempt + 1)
+                logger.warning(f"⚠️ {symbol}: Veri hatasi ({e}), {wait}s sonra tekrar denenecek...")
+                time.sleep(wait)
+            else:
+                logger.error(f"❌ {symbol} veri hatasi: {e}")
+    return None
 
 def calc_rsi(series, period=14):
     delta = series.diff()
@@ -379,7 +393,7 @@ def run():
                         trades += 1
                         logger.info(f"✅ {msg}")
 
-            time.sleep(0.5)
+            time.sleep(1.0)
         except Exception as e:
             logger.error(f"❌ {sym} hata: {e}")
 
@@ -415,19 +429,27 @@ def run():
     price_map = {s['symbol']: s['price'] for s in signals if s.get('price') is not None}
     pos_rows = ""
     for p in pos_list:
-        current = price_map.get(p['symbol'], p['entry_price'])
-        unreal_pnl = (current - p['entry_price']) * p['shares']
-        unreal_pct = (current / p['entry_price'] - 1) * 100
-        pnl_row_color = "#16A34A" if unreal_pnl >= 0 else "#DC2626"
+        if p['symbol'] in price_map:
+            current = price_map[p['symbol']]
+            unreal_pnl = (current - p['entry_price']) * p['shares']
+            unreal_pct = (current / p['entry_price'] - 1) * 100
+            pnl_row_color = "#16A34A" if unreal_pnl >= 0 else "#DC2626"
+            current_cell = f"{current:.2f}"
+            pnl_cell = f"{unreal_pnl:+,.0f} ₺<br><span style='font-size:11px;'>(%{unreal_pct:+.1f})</span>"
+        else:
+            # Bu run'da veri cekilemedi (rate-limit vb.) - yanlis %0 gostermek yerine acikca belirt
+            current_cell = "Veri Yok"
+            pnl_row_color = "#94A3B8"
+            pnl_cell = "-"
         pos_rows += f"""
 <tr style="border-bottom:1px solid #e0e0e0;">
 <td style="padding:12px;font-weight:bold;">{p['symbol']}</td>
 <td style="padding:12px;text-align:center;">{p['shares']:.2f}</td>
 <td style="padding:12px;text-align:center;">{p['entry_price']:.2f}</td>
-<td style="padding:12px;text-align:center;">{current:.2f}</td>
+<td style="padding:12px;text-align:center;">{current_cell}</td>
 <td style="padding:12px;text-align:center;">{(p['peak_price'] or p['entry_price']):.2f}</td>
 <td style="padding:12px;text-align:center;color:#e74c3c;">{p['stop_loss']:.2f}</td>
-<td style="padding:12px;text-align:center;color:{pnl_row_color};font-weight:bold;">{unreal_pnl:+,.0f} ₺<br><span style="font-size:11px;">(%{unreal_pct:+.1f})</span></td>
+<td style="padding:12px;text-align:center;color:{pnl_row_color};font-weight:bold;">{pnl_cell}</td>
 </tr>"""
     if not pos_rows:
         pos_rows = '<tr><td colspan="7" style="padding:20px;text-align:center;">Açık pozisyon yok</td></tr>'
