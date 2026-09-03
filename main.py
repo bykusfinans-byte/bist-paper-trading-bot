@@ -35,6 +35,53 @@ def market_is_open(cfg):
     end_t = datetime.strptime(end, "%H:%M").time()
     return start_t <= now.time() <= end_t
 
+CACHE_DIR = Path("cache")
+CACHE_TTL_MINUTES = 90  # 4 saatlik mum kullandigimiz icin bu kadar sik tazelemeye gerek yok
+
+def load_cache(symbol):
+    f = CACHE_DIR / f"{symbol}.json"
+    if not f.exists():
+        return None, None
+    try:
+        obj = json.loads(f.read_text())
+        ts = datetime.fromisoformat(obj['ts'])
+        df = pd.read_json(json.dumps(obj['data']), orient='records')
+        df['Datetime'] = pd.to_datetime(df['Datetime'])
+        return df, ts
+    except Exception:
+        return None, None
+
+def save_cache(symbol, df):
+    try:
+        CACHE_DIR.mkdir(exist_ok=True)
+        f = CACHE_DIR / f"{symbol}.json"
+        payload = {'ts': datetime.now().isoformat(), 'data': json.loads(df.to_json(orient='records', date_format='iso'))}
+        f.write_text(json.dumps(payload))
+    except Exception as e:
+        logger.warning(f"⚠️ {symbol}: Onbellege yazilamadi: {e}")
+
+def get_stock_data(symbol, interval, days):
+    """Once onbellege bakar (90 dk icinde ise Yahoo'ya hic gitmez).
+    Onbellek eskiyse tazelemeye calisir; basarisiz olursa (rate-limit vb.)
+    'Veri Yok' yerine elde ne kadar eski veri varsa onu kullanir."""
+    cached_df, cached_ts = load_cache(symbol)
+    if cached_df is not None and cached_ts and (datetime.now() - cached_ts) < timedelta(minutes=CACHE_TTL_MINUTES):
+        age_min = int((datetime.now() - cached_ts).total_seconds() // 60)
+        logger.info(f"🗄️ {symbol}: Onbellekten ({age_min} dk once)")
+        return cached_df
+
+    fresh_df = fetch_stock(symbol, interval, days)
+    if fresh_df is not None:
+        save_cache(symbol, fresh_df)
+        return fresh_df
+
+    if cached_df is not None:
+        age_min = int((datetime.now() - cached_ts).total_seconds() // 60)
+        logger.warning(f"⚠️ {symbol}: Guncel veri alinamadi, {age_min} dk eski onbellek kullaniliyor")
+        return cached_df
+
+    return None
+
 def fetch_stock(symbol, interval="4h", days=60, retries=1):
     """Yahoo Finance IP basina saatlik istek siniri koyuyor; Render'in paylasimli IP'si
     yuzunden ara sira 429/bos yanit gelebilir. Retry sayisi kasitli dusuk tutuluyor,
@@ -319,7 +366,7 @@ def run():
     for sym in cfg['watchlist']:
         try:
             logger.info(f"\n🔍 {sym} analiz ediliyor...")
-            df = fetch_stock(sym, cfg['data']['interval'], cfg['data']['lookback_days'])
+            df = get_stock_data(sym, cfg['data']['interval'], cfg['data']['lookback_days'])
             if df is None:
                 logger.warning(f"⚠️ {sym}: Veri yok")
                 continue
