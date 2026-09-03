@@ -411,19 +411,26 @@ def run():
 <td align='center' style='padding:8px;border:1px solid #e5e7eb;color:{adx_color};font-weight:bold;'>{i['adx']:.1f}</td>
 </tr>"""
 
-    # === ACIK POZISYONLAR ===
+    # === ACIK POZISYONLAR (guncel K/Z ile) ===
+    price_map = {s['symbol']: s['price'] for s in signals if s.get('price') is not None}
     pos_rows = ""
     for p in pos_list:
+        current = price_map.get(p['symbol'], p['entry_price'])
+        unreal_pnl = (current - p['entry_price']) * p['shares']
+        unreal_pct = (current / p['entry_price'] - 1) * 100
+        pnl_row_color = "#16A34A" if unreal_pnl >= 0 else "#DC2626"
         pos_rows += f"""
 <tr style="border-bottom:1px solid #e0e0e0;">
 <td style="padding:12px;font-weight:bold;">{p['symbol']}</td>
 <td style="padding:12px;text-align:center;">{p['shares']:.2f}</td>
 <td style="padding:12px;text-align:center;">{p['entry_price']:.2f}</td>
+<td style="padding:12px;text-align:center;">{current:.2f}</td>
 <td style="padding:12px;text-align:center;">{(p['peak_price'] or p['entry_price']):.2f}</td>
 <td style="padding:12px;text-align:center;color:#e74c3c;">{p['stop_loss']:.2f}</td>
+<td style="padding:12px;text-align:center;color:{pnl_row_color};font-weight:bold;">{unreal_pnl:+,.0f} ₺<br><span style="font-size:11px;">(%{unreal_pct:+.1f})</span></td>
 </tr>"""
     if not pos_rows:
-        pos_rows = '<tr><td colspan="5" style="padding:20px;text-align:center;">Açık pozisyon yok</td></tr>'
+        pos_rows = '<tr><td colspan="7" style="padding:20px;text-align:center;">Açık pozisyon yok</td></tr>'
 
     pnl_color = "#16A34A" if stats['total_pnl'] >= 0 else "#DC2626"
 
@@ -458,7 +465,7 @@ def run():
 </table>
 <h2 style='color:#1e293b;margin-top:22px;'>📋 Açık Pozisyonlar</h2>
 <table width='100%' cellpadding='8' cellspacing='0' style='border-collapse:collapse;border:1px solid #d1d5db;'>
-<tr bgcolor='#1E293B'><th align='left' style='color:#fff;'>Hisse</th><th style='color:#fff;'>Lot</th><th style='color:#fff;'>Alış</th><th style='color:#fff;'>Zirve</th><th style='color:#fff;'>Stop</th></tr>
+<tr bgcolor='#1E293B'><th align='left' style='color:#fff;'>Hisse</th><th style='color:#fff;'>Lot</th><th style='color:#fff;'>Alış</th><th style='color:#fff;'>Güncel</th><th style='color:#fff;'>Zirve</th><th style='color:#fff;'>Stop</th><th style='color:#fff;'>K/Z</th></tr>
 {pos_rows}
 </table>
 </td></tr>
