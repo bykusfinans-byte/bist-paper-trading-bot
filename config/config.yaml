@@ -29,6 +29,8 @@ watchlist:
   
 
 portfolio:
+  trailing_activation_pct: 0.03
+  trailing_stop_pct: 0.05
   initial_balance: 100000
   max_position_per_stock: 0.20
   portfolio:
@@ -41,6 +43,7 @@ portfolio:
   take_profit_pct: 0.10
 
 indicators:
+  rsi_overbought: 70
   ema_fast: 9
   ema_slow: 21
   sma_trend: 50
