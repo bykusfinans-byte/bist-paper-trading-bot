@@ -35,9 +35,10 @@ def market_is_open(cfg):
     end_t = datetime.strptime(end, "%H:%M").time()
     return start_t <= now.time() <= end_t
 
-def fetch_stock(symbol, interval="4h", days=60, retries=2):
+def fetch_stock(symbol, interval="4h", days=60, retries=1):
     """Yahoo Finance IP basina saatlik istek siniri koyuyor; Render'in paylasimli IP'si
-    yuzunden ara sira 429/bos yanit gelebilir. Bunun icin basit bir retry+backoff var."""
+    yuzunden ara sira 429/bos yanit gelebilir. Retry sayisi kasitli dusuk tutuluyor,
+    aksi halde toplam calisma suresi gunicorn timeout'unu asabiliyor."""
     ticker = f"{symbol}.IS"
     end_ts = int(datetime.now().timestamp())
     start_ts = end_ts - (days * 24 * 60 * 60)
@@ -47,12 +48,14 @@ def fetch_stock(symbol, interval="4h", days=60, retries=2):
 
     for attempt in range(retries + 1):
         try:
-            r = requests.get(url, params=params, headers=headers, timeout=30)
+            r = requests.get(url, params=params, headers=headers, timeout=15)
             if r.status_code == 429:
-                wait = 5 * (attempt + 1)
-                logger.warning(f"⏳ {symbol}: Rate limit (429), {wait}s bekleniyor...")
-                time.sleep(wait)
-                continue
+                if attempt < retries:
+                    logger.warning(f"⏳ {symbol}: Rate limit (429), 3s bekleniyor...")
+                    time.sleep(3)
+                    continue
+                logger.error(f"❌ {symbol}: Rate limit (429), vazgeciliyor")
+                return None
             data = r.json()
             if "chart" not in data or not data["chart"]["result"]:
                 return None
@@ -74,9 +77,8 @@ def fetch_stock(symbol, interval="4h", days=60, retries=2):
             return df
         except Exception as e:
             if attempt < retries:
-                wait = 3 * (attempt + 1)
-                logger.warning(f"⚠️ {symbol}: Veri hatasi ({e}), {wait}s sonra tekrar denenecek...")
-                time.sleep(wait)
+                logger.warning(f"⚠️ {symbol}: Veri hatasi ({e}), 2s sonra tekrar denenecek...")
+                time.sleep(2)
             else:
                 logger.error(f"❌ {symbol} veri hatasi: {e}")
     return None
