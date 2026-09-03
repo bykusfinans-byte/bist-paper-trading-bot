@@ -12,13 +12,28 @@ import os
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s', handlers=[logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger(__name__)
 
+ISTANBUL_TZ = ZoneInfo("Europe/Istanbul")
+
 def load_config(path="config/config.yaml"):
     with open(path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
+
+def market_is_open(cfg):
+    """BIST'in normal seans saatleri icinde miyiz? (varsayilan: hafta ici 10:00-18:00 TSI)"""
+    mh = cfg.get('market_hours', {})
+    start = mh.get('start', '10:00')
+    end = mh.get('end', '18:00')
+    now = datetime.now(ISTANBUL_TZ)
+    if now.weekday() >= 5:  # 5=Cumartesi, 6=Pazar
+        return False
+    start_t = datetime.strptime(start, "%H:%M").time()
+    end_t = datetime.strptime(end, "%H:%M").time()
+    return start_t <= now.time() <= end_t
 
 def fetch_stock(symbol, interval="4h", days=60):
     ticker = f"{symbol}.IS"
@@ -96,6 +111,7 @@ def check_signal(df, cfg):
     trend = price > latest['EMA9'] > latest['EMA21'] > latest['SMA50']
     adx = latest['ADX'] > cfg['adx_threshold']
     macd = latest['MACD'] > 0
+    rsi_ok = latest['RSI'] < cfg.get('rsi_overbought', 70)
     # bb = latest['BB_Lower'] <= price <= latest['BB_Upper']   # PASIF (alim kararinda kullanilmiyor)
 
     # Hacim artik AL/HOLD kararini engellemiyor, sadece pozisyon buyuklugu icin
@@ -112,6 +128,7 @@ def check_signal(df, cfg):
         reasons.append("Trend:" + ",".join(r))
     if not adx: reasons.append(f"ADX({latest['ADX']:.1f})<={cfg['adx_threshold']}")
     if not macd: reasons.append(f"MACD({latest['MACD']:.2f})<=0")
+    if not rsi_ok: reasons.append(f"RSI asiri alim ({latest['RSI']:.1f})")
 
     indicators = {
         'price': price,
@@ -125,16 +142,12 @@ def check_signal(df, cfg):
         'macd_strength': macd_strength,
     }
 
-    if trend and adx and macd:   # vol ve bb AL kararina dahil degil
+    if trend and adx and macd and rsi_ok:
         return 'BUY', 'Tum kosullar saglandi', price, indicators
     return 'HOLD', ' | '.join(reasons), price, indicators
 
 def calc_position_size(macd_strength, vol_ratio, cfg):
-    """MACD gucu ve hacim gucune gore pozisyon buyuklugunu (TL) belirler.
-    - MACD gucu = (MACD / Fiyat) * 100   -> hisseler arasi karsilastirilabilir yuzde
-    - Hacim gucu = Guncel Hacim / 20 gunluk Ort. Hacim
-    Ikisi de esik ustundeyse tavan tutar, ikisi de altindaysa taban tutar,
-    biri ustunde biri altindaysa ortalama tutar kullanilir."""
+    """MACD gucu ve hacim gucune gore pozisyon buyuklugunu (TL) belirler."""
     p = cfg['portfolio']
     min_size = p['min_position_size']
     max_size = p['max_position_size']
@@ -150,9 +163,17 @@ def calc_position_size(macd_strength, vol_ratio, cfg):
 def init_db(path="data/portfolio.db"):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
-    conn.execute('CREATE TABLE IF NOT EXISTS portfolio (id INTEGER PRIMARY KEY, symbol TEXT, shares REAL, entry_price REAL, entry_date TEXT, stop_loss REAL, take_profit REAL, status TEXT DEFAULT "OPEN")')
-    conn.execute('CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY, symbol TEXT, action TEXT, shares REAL, price REAL, total_value REAL, date TEXT, reason TEXT)')
+    conn.execute('CREATE TABLE IF NOT EXISTS portfolio (id INTEGER PRIMARY KEY, symbol TEXT, shares REAL, entry_price REAL, entry_date TEXT, stop_loss REAL, take_profit REAL, status TEXT DEFAULT "OPEN", peak_price REAL)')
+    conn.execute('CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY, symbol TEXT, action TEXT, shares REAL, price REAL, total_value REAL, date TEXT, reason TEXT, pnl REAL, pnl_pct REAL)')
     conn.execute('CREATE TABLE IF NOT EXISTS balance (id INTEGER PRIMARY KEY, cash REAL, total_invested REAL, last_updated TEXT)')
+
+    # Eski veritabanlarinda eksik olabilecek kolonlari ekle (basit migration)
+    for table, cols in [('portfolio', ['peak_price']), ('transactions', ['pnl', 'pnl_pct'])]:
+        existing = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+        for col in cols:
+            if col not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} REAL")
+
     c = conn.execute("SELECT COUNT(*) FROM balance")
     if c.fetchone()[0] == 0:
         conn.execute("INSERT INTO balance VALUES (1, 100000, 0, ?)", (datetime.now().isoformat(),))
@@ -172,6 +193,24 @@ def get_pos(path="data/portfolio.db"):
     conn.close()
     return [dict(r) for r in rows]
 
+def update_peak(symbol, peak, path="data/portfolio.db"):
+    conn = sqlite3.connect(path)
+    conn.execute("UPDATE portfolio SET peak_price=? WHERE symbol=? AND status='OPEN'", (peak, symbol))
+    conn.commit()
+    conn.close()
+
+def get_performance_stats(path="data/portfolio.db"):
+    conn = sqlite3.connect(path)
+    rows = conn.execute("SELECT pnl FROM transactions WHERE action='SELL' AND pnl IS NOT NULL").fetchall()
+    conn.close()
+    pnls = [r[0] for r in rows]
+    total = len(pnls)
+    wins = len([p for p in pnls if p > 0])
+    losses = len([p for p in pnls if p <= 0])
+    win_rate = (wins / total * 100) if total else 0.0
+    total_pnl = sum(pnls)
+    return {'total_trades': total, 'wins': wins, 'losses': losses, 'win_rate': win_rate, 'total_pnl': total_pnl}
+
 def buy(symbol, price, reason, size, path="data/portfolio.db"):
     """size: TL cinsinden hedeflenen sabit yatirim tutari (calc_position_size'dan gelir)."""
     bal = get_bal(path)
@@ -180,8 +219,8 @@ def buy(symbol, price, reason, size, path="data/portfolio.db"):
         return False, 'Yetersiz bakiye'
     shares = inv / price
     conn = sqlite3.connect(path)
-    conn.execute("INSERT INTO portfolio (symbol,shares,entry_price,entry_date,stop_loss,take_profit) VALUES (?,?,?,?,?,?)", (symbol, shares, price, datetime.now().isoformat(), price*0.95, price*1.10))
-    conn.execute("INSERT INTO transactions VALUES (NULL,?,?,?,?,?,?,?)", (symbol, 'BUY', shares, price, inv, datetime.now().isoformat(), reason))
+    conn.execute("INSERT INTO portfolio (symbol,shares,entry_price,entry_date,stop_loss,take_profit,peak_price) VALUES (?,?,?,?,?,?,?)", (symbol, shares, price, datetime.now().isoformat(), price*0.95, price*1.10, price))
+    conn.execute("INSERT INTO transactions (symbol,action,shares,price,total_value,date,reason) VALUES (?,?,?,?,?,?,?)", (symbol, 'BUY', shares, price, inv, datetime.now().isoformat(), reason))
     conn.execute("UPDATE balance SET cash=cash-?, total_invested=total_invested+?, last_updated=? WHERE id=1", (inv, inv, datetime.now().isoformat()))
     conn.commit()
     conn.close()
@@ -195,12 +234,15 @@ def sell(symbol, price, reason, path="data/portfolio.db"):
         conn.close()
         return False, 'Pozisyon yok'
     total = p['shares'] * price
+    cost = p['shares'] * p['entry_price']
+    pnl = total - cost
+    pnl_pct = (price / p['entry_price'] - 1) * 100
     conn.execute("UPDATE portfolio SET status='CLOSED' WHERE id=?", (p['id'],))
-    conn.execute("INSERT INTO transactions VALUES (NULL,?,?,?,?,?,?,?)", (symbol, 'SELL', p['shares'], price, total, datetime.now().isoformat(), reason))
-    conn.execute("UPDATE balance SET cash=cash+?, total_invested=total_invested-?, last_updated=? WHERE id=1", (total, p['shares']*p['entry_price'], datetime.now().isoformat()))
+    conn.execute("INSERT INTO transactions (symbol,action,shares,price,total_value,date,reason,pnl,pnl_pct) VALUES (?,?,?,?,?,?,?,?,?)", (symbol, 'SELL', p['shares'], price, total, datetime.now().isoformat(), reason, pnl, pnl_pct))
+    conn.execute("UPDATE balance SET cash=cash+?, total_invested=total_invested-?, last_updated=? WHERE id=1", (total, cost, datetime.now().isoformat()))
     conn.commit()
     conn.close()
-    return True, f'{symbol} satildi'
+    return True, f'{symbol} satildi ({pnl:+,.0f} TL / %{pnl_pct:+.1f})'
 
 def send_mail(subject, html, cfg):
     """Brevo (Sendinblue) HTTP API uzerinden mail gonderir.
@@ -243,11 +285,17 @@ def run():
     cfg = load_config()
     init_db()
 
+    m_open = market_is_open(cfg)
+    logger.info(f"🏛️  Piyasa durumu: {'ACIK' if m_open else 'KAPALI'}")
+
     email = cfg['notifications']['email']
     for k in ['sender_email','sender_password','recipient_email']:
         env = k.upper()
         if os.environ.get(env):
             email[k] = os.environ[env]
+
+    trail_activation = cfg['portfolio'].get('trailing_activation_pct', 0.03)
+    trail_pct = cfg['portfolio'].get('trailing_stop_pct', 0.05)
 
     signals = []
     trades = 0
@@ -278,14 +326,33 @@ def run():
             pos = next((p for p in get_pos() if p['symbol'] == sym), None)
 
             if pos:
-                if price <= pos['stop_loss']:
-                    ok, msg = sell(sym, price, f"Stop-loss", "data/portfolio.db")
-                    if ok: send_mail(f"🔴 SATIS: {sym}", f"<h2>SATIS: {sym}</h2><p>{msg}</p>", email); trades += 1
-                elif price >= pos['take_profit']:
-                    ok, msg = sell(sym, price, f"Take-profit", "data/portfolio.db")
-                    if ok: send_mail(f"🟢 KAR SATISI: {sym}", f"<h2>KAR SATISI: {sym}</h2><p>{msg}</p>", email); trades += 1
+                # --- Trailing stop guncelle ---
+                peak = max(pos['peak_price'] or pos['entry_price'], price)
+                if peak != pos['peak_price']:
+                    update_peak(sym, peak, "data/portfolio.db")
+                    pos['peak_price'] = peak
+
+                activation_price = pos['entry_price'] * (1 + trail_activation)
+                if peak >= activation_price:
+                    trailing_stop = peak * (1 - trail_pct)
+                    effective_stop = max(pos['stop_loss'], trailing_stop)
+                    stop_reason = "Trailing Stop" if trailing_stop > pos['stop_loss'] else "Stop-loss"
+                else:
+                    effective_stop = pos['stop_loss']
+                    stop_reason = "Stop-loss"
+
+                # Satis kararlari - piyasa saatinden bagimsiz, koruma her zaman aktif
+                if price <= effective_stop:
+                    ok, msg = sell(sym, price, stop_reason, "data/portfolio.db")
+                    if ok:
+                        icon = "🟡" if stop_reason == "Trailing Stop" else "🔴"
+                        send_mail(f"{icon} {stop_reason.upper()}: {sym}", f"<h2>{stop_reason}: {sym}</h2><p>{msg}</p>", email)
+                        trades += 1
+                # Not: sabit take-profit kaldirildi, kazanclar artik trailing stop ile korunuyor (tavan yok).
             else:
-                if sig == 'BUY':
+                if sig == 'BUY' and not m_open:
+                    logger.info(f"   ↳ Piyasa kapali, yeni alim ertelendi")
+                elif sig == 'BUY' and m_open:
                     size = calc_position_size(ind['macd_strength'], ind['vol_ratio'], cfg)
                     ok, msg = buy(sym, price, reason, size)
                     if ok:
@@ -318,6 +385,7 @@ def run():
 
     bal = get_bal()
     pos_list = get_pos()
+    stats = get_performance_stats()
 
     # === INDIKATOR TABLOSU ===
     ind_rows = ""
@@ -351,11 +419,13 @@ def run():
 <td style="padding:12px;font-weight:bold;">{p['symbol']}</td>
 <td style="padding:12px;text-align:center;">{p['shares']:.2f}</td>
 <td style="padding:12px;text-align:center;">{p['entry_price']:.2f}</td>
+<td style="padding:12px;text-align:center;">{(p['peak_price'] or p['entry_price']):.2f}</td>
 <td style="padding:12px;text-align:center;color:#e74c3c;">{p['stop_loss']:.2f}</td>
-<td style="padding:12px;text-align:center;color:#27ae60;">{p['take_profit']:.2f}</td>
 </tr>"""
     if not pos_rows:
         pos_rows = '<tr><td colspan="5" style="padding:20px;text-align:center;">Açık pozisyon yok</td></tr>'
+
+    pnl_color = "#16A34A" if stats['total_pnl'] >= 0 else "#DC2626"
 
     # === RAPOR HTML ===
     html = f"""<!DOCTYPE html><html><head><meta charset='UTF-8'></head>
@@ -364,7 +434,7 @@ def run():
 <table width='680' cellpadding='0' cellspacing='0' style='background:#fff;border:1px solid #d1d5db;'>
 <tr><td bgcolor='#0F766E' style='padding:22px;text-align:center;'>
 <h1 style='margin:0;color:#fff;'>📈 BIST AI PRO</h1>
-<div style='color:#d1fae5;font-size:13px;'>{datetime.now().strftime('%d.%m.%Y %H:%M')}</div></td></tr>
+<div style='color:#d1fae5;font-size:13px;'>{datetime.now().strftime('%d.%m.%Y %H:%M')} • Piyasa: {'AÇIK' if m_open else 'KAPALI'}</div></td></tr>
 <tr><td style='padding:18px;'>
 <table width='100%' cellpadding='6'><tr>
 <td width='25%' align='center' style='border:1px solid #e5e7eb;'><div style='font-size:11px;color:#64748b;'>NAKİT</div><b>{bal['cash']:,.0f} ₺</b></td>
@@ -372,14 +442,23 @@ def run():
 <td width='25%' align='center' style='border:1px solid #e5e7eb;'><div style='font-size:11px;color:#64748b;'>TOPLAM</div><b>{bal['total_value']:,.0f} ₺</b></td>
 <td width='25%' align='center' style='border:1px solid #e5e7eb;'><div style='font-size:11px;color:#64748b;'>POZİSYON</div><b>{len(pos_list)}</b></td>
 </tr></table>
-<h2 style='color:#1e293b;'>📊 Teknik Analiz</h2>
+
+<h2 style='color:#1e293b;margin-top:22px;'>🏆 Performans Özeti</h2>
+<table width='100%' cellpadding='6'><tr>
+<td width='25%' align='center' style='border:1px solid #e5e7eb;'><div style='font-size:11px;color:#64748b;'>TOPLAM İŞLEM</div><b>{stats['total_trades']}</b></td>
+<td width='25%' align='center' style='border:1px solid #e5e7eb;'><div style='font-size:11px;color:#64748b;'>KAZANAN/KAYIP</div><b>{stats['wins']}/{stats['losses']}</b></td>
+<td width='25%' align='center' style='border:1px solid #e5e7eb;'><div style='font-size:11px;color:#64748b;'>BAŞARI ORANI</div><b>%{stats['win_rate']:.1f}</b></td>
+<td width='25%' align='center' style='border:1px solid #e5e7eb;'><div style='font-size:11px;color:#64748b;'>TOPLAM K/Z</div><b style='color:{pnl_color};'>{stats['total_pnl']:+,.0f} ₺</b></td>
+</tr></table>
+
+<h2 style='color:#1e293b;margin-top:22px;'>📊 Teknik Analiz</h2>
 <table width='100%' cellpadding='9' cellspacing='0' style='border-collapse:collapse;border:1px solid #d1d5db;'>
 <tr bgcolor='#1E293B'><th align='left' style='color:#fff;'>Hisse</th><th style='color:#fff;'>Sinyal</th><th style='color:#fff;'>Fiyat</th><th style='color:#fff;'>EMA9</th><th style='color:#fff;'>EMA21</th><th style='color:#fff;'>SMA50</th><th style='color:#fff;'>RSI</th><th style='color:#fff;'>MACD</th><th style='color:#fff;'>ADX</th></tr>
 {ind_rows}
 </table>
 <h2 style='color:#1e293b;margin-top:22px;'>📋 Açık Pozisyonlar</h2>
 <table width='100%' cellpadding='8' cellspacing='0' style='border-collapse:collapse;border:1px solid #d1d5db;'>
-<tr bgcolor='#1E293B'><th align='left' style='color:#fff;'>Hisse</th><th style='color:#fff;'>Lot</th><th style='color:#fff;'>Alış</th><th style='color:#fff;'>Stop</th><th style='color:#fff;'>Hedef</th></tr>
+<tr bgcolor='#1E293B'><th align='left' style='color:#fff;'>Hisse</th><th style='color:#fff;'>Lot</th><th style='color:#fff;'>Alış</th><th style='color:#fff;'>Zirve</th><th style='color:#fff;'>Stop</th></tr>
 {pos_rows}
 </table>
 </td></tr>
