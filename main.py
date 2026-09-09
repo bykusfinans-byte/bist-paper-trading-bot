@@ -209,13 +209,27 @@ def check_signal(df, cfg):
         return 'BUY', 'Tum kosullar saglandi', price, indicators
     return 'HOLD', ' | '.join(reasons), price, indicators
 
-def calc_position_size(macd_strength, vol_ratio, cfg):
-    """MACD gucu ve hacim gucune gore pozisyon buyuklugunu (TL) belirler."""
-    p = cfg['portfolio']
-    min_size = p['min_position_size']
-    max_size = p['max_position_size']
-    strong_macd = macd_strength >= p['macd_strength_threshold']
-    strong_vol = vol_ratio >= p['volume_strength_threshold']
+def get_setting(key, default, path="data/portfolio.db"):
+    conn = sqlite3.connect(path)
+    conn.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value REAL)')
+    row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    conn.close()
+    return row[0] if row else default
+
+def set_setting(key, value, path="data/portfolio.db"):
+    conn = sqlite3.connect(path)
+    conn.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value REAL)')
+    conn.execute("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+    conn.commit()
+    conn.close()
+
+def calc_position_size(macd_strength, vol_ratio, settings):
+    """MACD gucu ve hacim gucune gore pozisyon buyuklugunu (TL) belirler.
+    settings: get_setting ile veritabanindan (veya yoksa config.yaml'dan) cozulmus degerler."""
+    min_size = settings['min_position_size']
+    max_size = settings['max_position_size']
+    strong_macd = macd_strength >= settings['macd_strength_threshold']
+    strong_vol = vol_ratio >= settings['volume_strength_threshold']
 
     if strong_macd and strong_vol:
         return max_size
@@ -357,8 +371,14 @@ def run():
         if os.environ.get(env):
             email[k] = os.environ[env]
 
-    trail_activation = cfg['portfolio'].get('trailing_activation_pct', 0.03)
-    trail_pct = cfg['portfolio'].get('trailing_stop_pct', 0.05)
+    portfolio_defaults = cfg['portfolio']
+    settings = {}
+    for key in ['min_position_size', 'max_position_size', 'macd_strength_threshold',
+                'volume_strength_threshold', 'trailing_activation_pct', 'trailing_stop_pct']:
+        settings[key] = get_setting(key, portfolio_defaults.get(key))
+
+    trail_activation = settings['trailing_activation_pct']
+    trail_pct = settings['trailing_stop_pct']
 
     signals = []
     trades = 0
@@ -416,7 +436,7 @@ def run():
                 if sig == 'BUY' and not m_open:
                     logger.info(f"   ↳ Piyasa kapali, yeni alim ertelendi")
                 elif sig == 'BUY' and m_open:
-                    size = calc_position_size(ind['macd_strength'], ind['vol_ratio'], cfg)
+                    size = calc_position_size(ind['macd_strength'], ind['vol_ratio'], settings)
                     ok, msg = buy(sym, price, reason, size)
                     if ok:
                         buy_html = f"""<!DOCTYPE html>
