@@ -23,7 +23,7 @@ Render kurulumu:
 import logging
 from datetime import datetime
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 
 import main as bot
 from mail_gate import should_send_now, mark_sent
@@ -36,11 +36,47 @@ app = Flask(__name__)
 DB_PATH = "data/portfolio.db"
 INTERVAL_MINUTES = 30
 
+# config.yaml'a deploy gerektirmeden degistirilebilen ayarlar (deploy = disk sifirlanmasi demek)
+ALLOWED_SETTINGS = {
+    'min_position_size', 'max_position_size', 'macd_strength_threshold',
+    'volume_strength_threshold', 'trailing_activation_pct', 'trailing_stop_pct',
+}
+
 
 @app.route("/")
 def home():
     """Basit saglik kontrolu - cron-job.org bu adrese de bakabilir."""
     return jsonify({"status": "alive", "time": datetime.now().isoformat()})
+
+
+@app.route("/settings", methods=["GET"])
+def get_settings():
+    """Su anki (veritabaninda kayitli veya config.yaml'dan gelen) ayar degerlerini gosterir."""
+    bot.init_db(DB_PATH)
+    cfg = bot.load_config()
+    defaults = cfg.get('portfolio', {})
+    values = {k: bot.get_setting(k, defaults.get(k), DB_PATH) for k in ALLOWED_SETTINGS}
+    return jsonify({"status": "ok", "settings": values})
+
+
+@app.route("/set-setting", methods=["GET"])
+def set_setting_route():
+    """Ornek kullanim: /set-setting?key=trailing_stop_pct&value=0.03
+    Deploy gerektirmez, aninda etkili olur, portfoyu SIFIRLAMAZ."""
+    key = request.args.get('key')
+    value = request.args.get('value')
+    if not key or value is None:
+        return jsonify({"status": "error", "message": "key ve value parametreleri gerekli"}), 400
+    if key not in ALLOWED_SETTINGS:
+        return jsonify({"status": "error", "message": f"desteklenmeyen key. izin verilenler: {sorted(ALLOWED_SETTINGS)}"}), 400
+    try:
+        value = float(value)
+    except ValueError:
+        return jsonify({"status": "error", "message": "value sayisal olmali"}), 400
+
+    bot.init_db(DB_PATH)
+    bot.set_setting(key, value, DB_PATH)
+    return jsonify({"status": "ok", "key": key, "value": value})
 
 
 @app.route("/run")
